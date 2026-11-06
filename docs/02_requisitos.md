@@ -1,19 +1,42 @@
-# Requisitos
 # 02. Requisitos del Sistema - NEFIJJ
 
-## 1. Requisitos Funcionales (RF)
-Los requisitos funcionales describen las acciones y operaciones que el sistema debe realizar:
+## 1. Roles y reglas generales
+- **Superadministrador (`superadmin`):** acceso global; puede crear organizaciones y activar o suspenderlas. La app tiene una pantalla básica para esta gestión.
+- **Administrador organizacional (`organization_admin`):** administra incidencias y recursos únicamente dentro de la organización activa a la que pertenece.
+- **Técnico (`technician`):** pertenece a una organización y sede, consulta incidencias de su sede y actualiza las que tiene asignadas.
+- **Usuario final (`user`):** puede pertenecer a varias organizaciones, selecciona el contexto activo y reporta/consulta sus propias incidencias.
+- Las cuentas se crean o habilitan por administración; no existe registro público en la primera versión.
+- El servidor obtiene rol, organización y sede de las membresías; no confía en valores enviados por la app. Para cuentas con varias organizaciones, la API usa `X-Organization-ID` y verifica la membresía.
 
-* **RF01 - Gestión de Usuarios:** El sistema debe permitir el registro, autenticación y control de roles (Administrador General, Técnico de Soporte y Usuario/Estudiante) mediante tokens seguros.
-* **RF02 - Reporte de Incidencias:** Los usuarios deben poder registrar una nueva incidencia especificando título, descripción, categoría (eléctrica, red, infraestructura, etc.) y la sede correspondiente.
-* **RF03 - Arquitectura Multitenant por Sedes:** El sistema debe aislar o filtrar la información de las incidencias para que los técnicos solo visualicen los reportes asignados a su sede específica.
-* **RF04 - Actualización de Estados:** Los técnicos y administradores deben poder cambiar el estado de una incidencia (Pendiente, En Proceso, Resuelta, Cerrada).
-* **RF05 - Módulo de Emergencia:** La aplicación móvil debe incluir una sección de acceso rápido con números de contacto y protocolos de actuación ante emergencias.
+## 2. Requisitos funcionales (RF)
+- **RF01 - Cuentas y autenticación:** autenticar usuarios y emitir/renovar tokens JWT. Administradores gestionan cuentas, membresías, roles y sede asignada dentro de su organización.
+- **RF02 - Reportar incidencia:** un usuario autenticado crea una incidencia con título, descripción, categoría y prioridad. El servidor asigna el reportante, la sede y el estado inicial `pendiente`.
+- **RF03 - Consultar incidencias:** el usuario ve sus propios reportes; el técnico ve los de su sede; el administrador consulta las sedes de su organización y filtra por sede, estado, prioridad y categoría. El superadministrador tiene alcance global autorizado.
+- **RF04 - Asignar y atender:** el administrador asigna un técnico de la misma organización y sede. El técnico asignado actualiza el estado permitido de la incidencia. Cada asignación y cambio de estado registra actor, fecha y valores anterior/nuevo.
+- **RF05 - Flujo de estados:** `pendiente` → `en_proceso` → `resuelta` → `cerrada`. El técnico asignado puede pasar de pendiente a en proceso y de en proceso a resuelta. El administrador puede cerrar una incidencia resuelta y reabrir una cerrada en estado `en_proceso`, dejando registro de auditoría.
+- **RF06 - Categorías y prioridades:** clasificar incidencias con categorías administrables y prioridad `baja`, `media`, `alta` o `critica`; si no se indica prioridad, usar `media`.
+- **RF07 - Emergencias:** consultar protocolos y contactos activos correspondientes a la sede del usuario. El administrador gestiona estos datos por sede, dentro de su organización.
+- **RF08 - Historial:** consultar el historial de cambios únicamente dentro del mismo alcance de acceso que la incidencia.
+- **RF09 - Áreas y enrutamiento automático (pendiente):** el usuario elegirá un área operativa independiente de la categoría; el backend asignará la incidencia a un responsable activo configurado para esa área y sede. No se debe confundir con el `assigned_to` manual actual.
+- **RF10 - Vigencia de invitaciones:** los códigos nuevos vencen tras siete días hábiles de Colombia: lunes a viernes, excluyendo festivos nacionales oficiales, calculados en `America/Bogota`. El conteo empieza el día hábil posterior a la emisión y conserva la hora local de emisión.
 
-## 2. Requisitos No Funcionales (RNF)
-Los requisitos no funcionales describen las características de calidad, rendimiento y seguridad:
+## 3. Requisitos no funcionales (RNF)
+- **RNF01 - Rendimiento:** objetivo de respuesta inferior a 2 segundos para operaciones habituales bajo carga normal, excluyendo latencia de red externa. Medir con datos y entorno representativos.
+- **RNF02 - Seguridad:** almacenar contraseñas mediante los hashers de Django; usar JWT y HTTPS en producción; aplicar autorización en cada consulta y operación.
+- **RNF03 - Aislamiento:** filtrar por organización y sede en el servidor y comprobar también el acceso al objeto solicitado por ID. No depender de filtros enviados por el cliente para limitar permisos.
+- **RNF04 - Integridad:** validar referencias, transiciones de estado y coincidencia de organización/sede entre técnicos e incidencias; registrar cambios sensibles.
+- **RNF05 - Portabilidad:** desarrollar la app con React Native y Expo; probar en Android con Expo Go. La API debe ser accesible desde la red del dispositivo.
+- **RNF06 - Configuración:** credenciales, claves y direcciones sensibles se configuran mediante variables de entorno; no se suben al repositorio.
+- **RNF07 - Disponibilidad de desarrollo:** MySQL o MariaDB local puede ejecutarse mediante XAMPP; el sistema no debe depender de XAMPP en producción. La instancia comprobada ejecuta MariaDB 10.11.16.
 
-* **RNF01 - Rendimiento:** Las peticiones a la API REST de Django deben responder en un tiempo menor a 2 segundos bajo condiciones normales de red.
-* **RNF02 - Seguridad y Encriptación:** Las contraseñas de los usuarios deben almacenarse utilizando algoritmos de encriptación seguros (Argon2 o PBKDF2), y la comunicación móvil debe protegerse mediante HTTPS/Tokens JWT.
-* **RNF03 - Disponibilidad:** El entorno local de base de datos MySQL debe mantenerse operativo mediante el servicio de XAMPP durante las pruebas del equipo.
-* **RNF04 - Portabilidad:** La aplicación móvil desarrollada en React Native y Expo debe ejecutarse correctamente en dispositivos Android mediante el uso de Expo Go.
+## 4. Validación de aceptación
+La versión se acepta cuando las pruebas del documento [09_pruebas.md](./09_pruebas.md) verifican autenticación, permisos por rol y sede, creación y flujo de incidencias, protocolos de emergencia y respuestas de error coherentes.
+
+## 5. Estado y límites conocidos
+- El backend implementa organizaciones, membresías, invitaciones, selección de tenant, filtros por organización y permisos para incidencias, sedes, usuarios, categorías y protocolos. La migración de datos tiene una prueba aislada de asignación y reversión.
+- La app Expo implementa selección de organización, encabezado `X-Organization-ID`, gestión básica de organizaciones para superadministradores, panel de incidencias organizacional y flujos existentes de usuarios/técnicos.
+- No están implementados en móvil el escáner QR/flujo de vinculación, métricas/gráficas, notificaciones ni pantallas completas para administrar personal, sedes, categorías y protocolos.
+- Áreas/departamentos y enrutamiento automático por responsable no están implementados; actualmente se clasifica por categoría y la asignación del técnico la realiza un administrador.
+- El objetivo de rendimiento RNF01 no se ha medido bajo carga y no debe considerarse certificado.
+- La exportación Android aprobada es un bundle, no un APK; se requiere comprobación manual de la UI y roles en dispositivo.
+- Para el estado real de pruebas y red local, consultar [09_pruebas.md](./09_pruebas.md) y [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).

@@ -1,19 +1,51 @@
-# Propuesta
 # 01. Propuesta del Proyecto - NEFIJJ
 
-## 1. Nombre del Sistema
-**NEFIJJ** - Sistema Multitenant de Gestión de Incidencias Institucionales.
+## 1. Nombre
+**NEFIJJ** - Sistema multisedes para la gestión de incidencias institucionales.
 
-## 2. Descripción General y Alcance
-NEFIJJ es una plataforma web y móvil diseñada para centralizar, automatizar y gestionar el reporte y resolución de incidencias en infraestructuras institucionales (enfocado inicialmente en el entorno universitario de la Universidad de La Guajira). El sistema permite segmentar la operación por sedes y departamentos (arquitectura multitenant) para garantizar que cada administrador gestione únicamente los reportes de su área correspondiente.
+## 2. Descripción y alcance
+NEFIJJ centraliza el reporte, seguimiento y resolución de incidencias de infraestructura y operación universitaria, inicialmente para la Universidad de La Guajira. Incluye una aplicación móvil, una API REST y una base de datos relacional compartida, con separación lógica de la información por sede.
 
-## 3. Objetivos del Proyecto
-* **Objetivo General:** Desarrollar un sistema software robusto y escalable para el registro y seguimiento de incidencias operativas y de infraestructura.
-* **Objetivos Específicos:**
-  1. Implementar una arquitectura multitenant basada en MySQL para aislar los datos por sedes institucionales.
-  2. Proveer una API REST segura mediante Django Framework.
-  3. Desarrollar una interfaz móvil multiplataforma con React Native y Expo para facilitar la reportería rápida en campo.
-  4. Incorporar un módulo de protocolos de emergencia accesible de forma rápida.
+El sistema permite que los usuarios reporten problemas y consulten sus propios casos; los técnicos atiendan los casos asignados dentro de su sede; y los administradores generales administren usuarios, catálogos, sedes y operaciones de todas las sedes. También ofrece protocolos y contactos de emergencia asociados a cada sede.
 
-## 4. Justificación
-La gestión manual de incidencias genera retrasos operativos y pérdida de trazabilidad. NEFIJJ optimiza los tiempos de respuesta de los equipos técnicos mediante notificaciones centralizadas y un control estricto de roles y permisos.
+El proyecto no contempla, en su primera versión, asignación automática, chat en tiempo real, seguimiento GPS, notificaciones push ni registro público de cuentas. Las cuentas son creadas por un administrador.
+
+## 3. Objetivos
+### Objetivo general
+Desarrollar una solución segura, mantenible y multiplataforma para registrar y dar seguimiento a incidencias institucionales.
+
+### Objetivos específicos
+1. Implementar una API con Django y Django REST Framework.
+2. Aislar el acceso a la información por sede y por rol en cada operación del servidor.
+3. Permitir reportar incidencias, asignarlas, actualizar su estado y consultar su historial.
+4. Construir una aplicación móvil con React Native y Expo.
+5. Hacer accesibles desde el móvil los protocolos y contactos de emergencia de la sede.
+
+## 4. Usuarios y valor
+- **Usuario/estudiante:** registra incidencias de su sede y consulta el estado de las que reportó.
+- **Técnico:** consulta incidencias de su sede y gestiona las que le fueron asignadas.
+- **Administrador general:** administra el sistema y puede operar en todas las sedes.
+
+La centralización y el historial de cambios mejoran la trazabilidad y ayudan a priorizar el trabajo de soporte sin exponer información de otras sedes a usuarios no autorizados.
+
+## 5. Criterios de éxito
+- Los permisos se aplican en el backend, no solo en la interfaz móvil.
+- Un usuario no puede consultar ni modificar incidencias ajenas a su alcance.
+- Cada incidencia conserva su sede, reportante, estado y fechas; los cambios relevantes quedan auditados.
+- Los flujos principales funcionan en Android con Expo Go durante desarrollo y contra un servidor accesible desde el dispositivo.
+
+## 6. Estado de implementación
+- Backend Django REST Framework conectado a MariaDB local de XAMPP mediante el backend compatible con MySQL, con cuentas, sedes, incidencias, categorías, protocolos, JWT y control multisedes.
+- Aplicación Expo con inicio de sesión, consulta y reporte de incidencias, protocolos y un panel operativo para administradores.
+- Los datos `DEMO` son ficticios y sirven exclusivamente para pruebas; no son información institucional ni protocolos de emergencia reales.
+- La administración móvil de usuarios, sedes y catálogos no está implementada; estas tareas se realizan mediante Django Admin o la API administrativa.
+- Las pruebas automatizadas de backend usan SQLite en memoria. Las pruebas manuales de todos los flujos en un teléfono aún deben completarse.
+
+La bitácora técnica, los comandos que se ejecutaron y los pendientes están en [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
+
+## 7. Evolución a una plataforma multiempresa
+El backend ya incorpora organizaciones, membresías con rol y sede, aislamiento de incidencias/categorías, invitaciones de un uso y selección de organización. La app móvil envía el tenant activo y tiene navegación inicial por rol, selector de organización y gestión básica de organizaciones para superadministradores.
+
+La entrega sigue parcial: faltan la prueba de la migración con una copia representativa de MariaDB, una revisión manual en teléfono, la interfaz móvil de invitaciones/vinculación QR, métricas y varias pantallas de administración organizacional. El estado verificado y los límites están en [09_pruebas.md](./09_pruebas.md) y [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
+
+Decisión de cliente: una sola app operativa para administradores de empresa, técnicos/responsables y usuarios; usar Django Admin como consola web separada del superadministrador en el MVP. No se requieren dos APKs. El QR de Expo Go solo carga la app de desarrollo y no crea ni vincula una empresa.
