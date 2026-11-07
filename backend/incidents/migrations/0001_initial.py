@@ -52,6 +52,7 @@ class Migration(migrations.Migration):
                 ('description', models.TextField()),
                 ('status', models.CharField(choices=[('pendiente', 'Pendiente'), ('en_proceso', 'En proceso'), ('resuelta', 'Resuelta'), ('cerrada', 'Cerrada')], default='pendiente', max_length=20)),
                 ('priority', models.CharField(choices=[('baja', 'Baja'), ('media', 'Media'), ('alta', 'Alta'), ('critica', 'Crítica')], default='media', max_length=20)),
+                ('evidence_image', models.ImageField(blank=True, null=True, upload_to='evidences/%Y/%m/')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('assigned_to', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='assigned_incidents', to=settings.AUTH_USER_MODEL)),

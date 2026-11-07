@@ -1,9 +1,55 @@
+from importlib import import_module
+from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+
 from django.contrib.auth import get_user_model
-from django.urls import reverse
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.urls import Resolver404, resolve, reverse
+from django.test import TransactionTestCase, override_settings
+from PIL import Image
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APITestCase
 
 from accounts.models import Location, Organization, OrganizationMembership
 from .models import Category, EmergencyProtocol, Incident, IncidentEvent
+from .serializers import IncidentSerializer
+
+create_missing_legacy_tables = import_module(
+    "incidents.migrations.0004_repair_missing_legacy_tables"
+).create_missing_legacy_tables
+
+
+class LegacyTableRepairMigrationTests(TransactionTestCase):
+    def test_creates_only_missing_tables_and_is_idempotent(self):
+        state = MigrationExecutor(connection).loader.project_state(
+            [("incidents", "0003_backfill_organization_scope")]
+        )
+        apps = state.apps
+        models_to_repair = [
+            apps.get_model("incidents", model_name)
+            for model_name in ("IncidentEvent", "EmergencyProtocol")
+        ]
+
+        with connection.schema_editor() as schema_editor:
+            existing_tables = set(connection.introspection.table_names())
+            for model in models_to_repair:
+                if model._meta.db_table in existing_tables:
+                    schema_editor.delete_model(model)
+
+            create_missing_legacy_tables(apps, schema_editor)
+            repaired_tables = set(connection.introspection.table_names())
+            create_missing_legacy_tables(apps, schema_editor)
+
+        for model in models_to_repair:
+            self.assertIn(model._meta.db_table, repaired_tables)
+        self.assertEqual(
+            set(connection.introspection.table_names()),
+            repaired_tables,
+        )
 
 
 class IncidentApiTests(APITestCase):
@@ -196,6 +242,152 @@ class IncidentApiTests(APITestCase):
         self.assertEqual(missing_fields.status_code, 400)
         self.assertEqual(inactive_category_response.status_code, 400)
         self.assertEqual(invalid_priority.status_code, 400)
+        self.assertEqual(Incident.objects.count(), 0)
+
+    def test_student_can_create_incident_with_multipart_evidence_image(self):
+        image_buffer = BytesIO()
+        Image.new("RGB", (2, 2), color="red").save(image_buffer, format="PNG")
+        image = SimpleUploadedFile(
+            "evidence.png",
+            image_buffer.getvalue(),
+            content_type="image/png",
+        )
+        self.client.force_authenticate(self.student_a)
+
+        with TemporaryDirectory() as media_root:
+            with override_settings(MEDIA_ROOT=media_root):
+                response = self.client.post(
+                    reverse("incident-list"),
+                    {
+                        "title": "Daño en el laboratorio",
+                        "description": "Se adjunta evidencia.",
+                        "category_id": str(self.category.pk),
+                        "evidence_image": image,
+                    },
+                    format="multipart",
+                )
+
+                self.assertEqual(response.status_code, 201, response.data)
+                incident = Incident.objects.get(pk=response.data["id"])
+                self.assertTrue(incident.evidence_image.name.startswith("evidences/"))
+                self.assertTrue(Path(media_root, incident.evidence_image.name).is_file())
+                self.assertIn("evidence_image", response.data)
+                self.assertIn(
+                    reverse("incident-evidence", args=[incident.pk]),
+                    response.data["evidence_image"],
+                )
+                self.assertEqual(
+                    incident.events.get().event_type,
+                    IncidentEvent.EventType.CREATED,
+                )
+
+                evidence_response = self.client.get(
+                    reverse("incident-evidence", args=[incident.pk])
+                )
+                self.assertEqual(evidence_response.status_code, 200)
+                self.assertEqual(
+                    b"".join(evidence_response.streaming_content),
+                    image_buffer.getvalue(),
+                )
+                with self.assertRaises(Resolver404):
+                    resolve(f"/media/{incident.evidence_image.name}")
+
+                self.client.force_authenticate(self.student_b)
+                foreign_evidence_response = self.client.get(
+                    reverse("incident-evidence", args=[incident.pk])
+                )
+                self.assertEqual(foreign_evidence_response.status_code, 404)
+                self.client.force_authenticate(user=None)
+                unauthenticated_response = self.client.get(
+                    reverse("incident-evidence", args=[incident.pk])
+                )
+                self.assertEqual(unauthenticated_response.status_code, 401)
+
+    def test_evidence_image_rejects_files_over_10_megabytes(self):
+        image = SimpleNamespace(size=10 * 1024 * 1024 + 1)
+        with self.assertRaisesMessage(
+            DRFValidationError,
+            "La imagen no puede superar los 10 MB.",
+        ):
+            IncidentSerializer().validate_evidence_image(image)
+
+    def test_invalid_multipart_evidence_does_not_create_incident(self):
+        self.client.force_authenticate(self.student_a)
+
+        response = self.client.post(
+            reverse("incident-list"),
+            {
+                "title": "Archivo inválido",
+                "description": "El archivo no es una imagen.",
+                "category_id": str(self.category.pk),
+                "evidence_image": SimpleUploadedFile(
+                    "evidence.png",
+                    b"not an image",
+                    content_type="image/png",
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Incident.objects.count(), 0)
+
+    def test_organization_admin_can_manage_categories_within_tenant(self):
+        self.client.force_authenticate(self.admin)
+        create_response = self.client.post(
+            reverse("category-list"),
+            {"name": "Infraestructura", "description": "Edificios y mobiliario"},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.data)
+        category_id = create_response.data["id"]
+        self.assertEqual(create_response.data["organization_id"], self.organization.pk)
+
+        update_response = self.client.patch(
+            reverse("category-detail", args=[category_id]),
+            {"description": "Daños a edificios y mobiliario", "is_active": False},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.data)
+        self.assertFalse(update_response.data["is_active"])
+
+        foreign_update_response = self.client.patch(
+            reverse("category-detail", args=[self.foreign_category.pk]),
+            {"name": "Cambio no autorizado"},
+            format="json",
+        )
+        self.assertEqual(foreign_update_response.status_code, 404)
+        self.assertEqual(self.foreign_category.name, "Redes")
+
+    def test_non_admin_cannot_manage_categories(self):
+        self.client.force_authenticate(self.student_a)
+        response = self.client.post(
+            reverse("category-list"),
+            {"name": "No autorizada", "description": ""},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            Category.objects.filter(
+                organization=self.organization,
+                name="No autorizada",
+            ).exists()
+        )
+
+    def test_incident_serializer_rejects_category_from_another_organization(self):
+        self.client.force_authenticate(self.student_a)
+
+        response = self.client.post(
+            reverse("incident-list"),
+            {
+                "title": "Categoría de otro tenant",
+                "description": "No debe aceptarse.",
+                "category_id": self.foreign_category.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(Incident.objects.count(), 0)
 
     def test_student_can_only_read_own_incidents_and_history(self):

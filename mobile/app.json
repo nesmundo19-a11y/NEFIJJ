@@ -21,7 +21,15 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "NEFIJJ necesita acceso a tus fotos para adjuntar evidencia a un reporte.",
+          "cameraPermission": "NEFIJJ necesita acceso a la cámara para tomar evidencia de un reporte.",
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }

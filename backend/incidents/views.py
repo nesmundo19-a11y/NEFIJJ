@@ -1,8 +1,13 @@
+import mimetypes
+
 from django.contrib.auth import get_user_model
+from django.core.files.storage import default_storage
 from django.db import transaction
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, serializers
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -87,6 +92,7 @@ def apply_incident_filters(request, queryset):
 
 class IncidentListCreateView(generics.ListCreateAPIView):
     serializer_class = IncidentSerializer
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def get_queryset(self):
         return apply_incident_filters(self.request, visible_incidents(self.request))
@@ -123,6 +129,25 @@ class IncidentDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return visible_incidents(self.request)
+
+
+class IncidentEvidenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        incident = get_object_or_404(visible_incidents(request), pk=pk)
+        if not incident.evidence_image:
+            raise Http404
+        if not default_storage.exists(incident.evidence_image.name):
+            raise Http404
+
+        content_type, _ = mimetypes.guess_type(incident.evidence_image.name)
+        response = FileResponse(
+            default_storage.open(incident.evidence_image.name, "rb"),
+            content_type=content_type or "application/octet-stream",
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
 
 class IncidentAssignmentSerializer(serializers.Serializer):
@@ -178,7 +203,7 @@ class IncidentAssignView(APIView):
                 new_value={"assigned_to": technician.pk if technician else None},
             )
 
-        return Response(IncidentSerializer(incident).data)
+        return Response(IncidentSerializer(incident, context={"request": request}).data)
 
 
 class IncidentStatusSerializer(serializers.Serializer):
@@ -240,7 +265,7 @@ class IncidentStatusView(APIView):
                 new_value={"status": new_status},
             )
 
-        return Response(IncidentSerializer(incident).data)
+        return Response(IncidentSerializer(incident, context={"request": request}).data)
 
 
 class IncidentEventsView(generics.ListAPIView):

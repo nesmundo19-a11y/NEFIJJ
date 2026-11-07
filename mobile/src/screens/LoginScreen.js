@@ -103,6 +103,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "#ffffff",
     gap: 12,
+    elevation: 3,
   },
   title: {
     color: "#0b6b63",
@@ -113,6 +114,7 @@ const styles = StyleSheet.create({
   subtitle: {
     marginBottom: 12,
     color: "#52615e",
+    lineHeight: 21,
     textAlign: "center",
   },
   label: {
@@ -124,8 +126,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: "#b8c6c2",
-    borderRadius: 8,
+    borderRadius: 10,
     color: "#172321",
+    backgroundColor: "#ffffff",
   },
   error: {
     color: "#a42323",
@@ -135,7 +138,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: 8,
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: "#0b6b63",
   },
   pressed: {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,12 +9,14 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 
 const PRIORITIES = ["baja", "media", "alta", "critica"];
+const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
 
 export default function CreateIncidentScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -22,6 +25,7 @@ export default function CreateIncidentScreen({ navigation }) {
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState(null);
   const [priority, setPriority] = useState("media");
+  const [evidence, setEvidence] = useState(null);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -59,17 +63,86 @@ export default function CreateIncidentScreen({ navigation }) {
     setSubmitting(true);
     setError("");
     try {
-      await api.post("/incidents/", {
+      const payload = evidence ? new FormData() : {
         title: title.trim(),
         description: description.trim(),
         category_id: categoryId,
         priority,
-      });
+      };
+      if (evidence) {
+        payload.append("title", title.trim());
+        payload.append("description", description.trim());
+        payload.append("category_id", String(categoryId));
+        payload.append("priority", priority);
+        const imageType = evidence.mimeType || "image/jpeg";
+        payload.append("evidence_image", {
+          uri: evidence.uri,
+          name: `evidence-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${
+            imageType === "image/png" ? "png" : "jpg"
+          }`,
+          type: imageType,
+        });
+      }
+      await api.post("/incidents/", payload, evidence
+        ? { headers: { "Content-Type": "multipart/form-data" } }
+        : undefined);
       navigation.goBack();
     } catch (requestError) {
       setError(getApiErrorMessage(requestError));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function selectEvidence(source) {
+    setError("");
+    try {
+      const permission =
+        source === "camera"
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError(
+          source === "camera"
+            ? "Permite el acceso a la cámara para tomar una foto."
+            : "Permite el acceso a tus fotos para adjuntar una imagen.",
+        );
+        return;
+      }
+
+      const result =
+        source === "camera"
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ["images"],
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: 0.8,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ["images"],
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: 0.8,
+            });
+      if (result.canceled) {
+        return;
+      }
+
+      const selected = result.assets[0];
+      if (selected.fileSize && selected.fileSize > MAX_EVIDENCE_BYTES) {
+        setError("La foto debe pesar 10 MB o menos. Elige otra imagen.");
+        return;
+      }
+      if (
+        selected.mimeType &&
+        !["image/jpeg", "image/png"].includes(selected.mimeType.toLowerCase())
+      ) {
+        setError("Elige una imagen JPG o PNG.");
+        return;
+      }
+      setEvidence(selected);
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError));
     }
   }
 
@@ -82,7 +155,7 @@ export default function CreateIncidentScreen({ navigation }) {
       <TextInput
         accessibilityLabel="Título"
         editable={!submitting}
-        maxLength={200}
+        maxLength={255}
         onChangeText={setTitle}
         placeholder="Describe brevemente el problema"
         style={styles.input}
@@ -138,6 +211,44 @@ export default function CreateIncidentScreen({ navigation }) {
           </Pressable>
         ))}
       </View>
+      <Text style={styles.label}>Foto de evidencia (opcional)</Text>
+      <View style={styles.evidenceActions}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={submitting}
+          onPress={() => selectEvidence("camera")}
+          style={[styles.evidenceButton, submitting && styles.disabled]}
+        >
+          <Text style={styles.evidenceButtonText}>Tomar foto</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={submitting}
+          onPress={() => selectEvidence("library")}
+          style={[styles.evidenceButton, submitting && styles.disabled]}
+        >
+          <Text style={styles.evidenceButtonText}>Elegir foto</Text>
+        </Pressable>
+      </View>
+      {evidence ? (
+        <View style={styles.previewContainer}>
+          <Image
+            accessibilityLabel="Vista previa de la foto de evidencia"
+            source={{ uri: evidence.uri }}
+            style={styles.preview}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={submitting}
+            onPress={() => setEvidence(null)}
+            style={styles.removeEvidence}
+          >
+            <Text style={styles.removeEvidenceText}>Quitar foto</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Text style={styles.helper}>JPG o PNG, máximo 10 MB.</Text>
+      )}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <Pressable
         accessibilityRole="button"
@@ -183,6 +294,41 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+  },
+  evidenceActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  evidenceButton: {
+    minHeight: 44,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#0b6b63",
+    borderRadius: 10,
+    backgroundColor: "#ffffff",
+  },
+  evidenceButtonText: {
+    color: "#075b55",
+    fontWeight: "700",
+  },
+  previewContainer: {
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  preview: {
+    width: "100%",
+    height: 190,
+    borderRadius: 12,
+    backgroundColor: "#e1e9e6",
+  },
+  removeEvidence: {
+    paddingVertical: 6,
+  },
+  removeEvidenceText: {
+    color: "#a42323",
+    fontWeight: "700",
   },
   chip: {
     paddingHorizontal: 12,

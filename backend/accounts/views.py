@@ -10,7 +10,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.utils import get_md5_hash_password
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import (
     Location,
@@ -23,6 +28,7 @@ from .invitations import add_colombia_business_days
 from .permissions import IsNEFIJJAdmin, IsPlatformSuperAdmin
 from .serializers import (
     LocationSerializer,
+    ChangePasswordSerializer,
     OrganizationMembershipSerializer,
     OrganizationSerializer,
     UserManagementSerializer,
@@ -66,6 +72,45 @@ class NEFIJJTokenObtainPairSerializer(TokenObtainPairSerializer):
 class NEFIJJTokenObtainPairView(TokenObtainPairView):
     serializer_class = NEFIJJTokenObtainPairSerializer
     throttle_scope = "auth"
+
+
+class NEFIJJTokenRefreshSerializer(TokenRefreshSerializer):
+    def validate(self, attrs):
+        refresh = RefreshToken(attrs["refresh"])
+        user_id = refresh.get(api_settings.USER_ID_CLAIM)
+        user = User.objects.filter(
+            **{api_settings.USER_ID_FIELD: user_id},
+        ).first()
+        if user is None or not user.is_active:
+            raise InvalidToken("El token no es válido.")
+        if refresh.get(api_settings.REVOKE_TOKEN_CLAIM) != get_md5_hash_password(
+            user.password
+        ):
+            raise InvalidToken("La contraseña cambió; inicia sesión nuevamente.")
+        return super().validate(attrs)
+
+
+class NEFIJJTokenRefreshView(TokenRefreshView):
+    serializer_class = NEFIJJTokenRefreshSerializer
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_scope = "auth"
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=request.user.pk)
+            user.set_password(serializer.validated_data["new_password"])
+            user.save(update_fields=["password"])
+
+        return Response(status=204)
 
 
 class AdminOnlyMixin:

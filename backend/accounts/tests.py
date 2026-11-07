@@ -120,7 +120,7 @@ class AuthenticationApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.data)
-        self.assertIn("refresh", response.data)
+        self.assertNotIn("refresh", response.data)
 
     def test_expired_access_token_cannot_access_protected_endpoint(self):
         token = AccessToken.for_user(self.user)
@@ -143,6 +143,62 @@ class AuthenticationApiTests(APITestCase):
         self.assertTrue(user.is_superuser)
         self.assertEqual(user.role, get_user_model().Role.SUPERADMIN)
         self.assertIsNone(user.location_id)
+
+    def test_user_password_change_invalidates_existing_access_and_refresh_tokens(self):
+        login = self.client.post(
+            reverse("token_obtain_pair"),
+            {"username": "student", "password": "Secure-Test-Password-123"},
+            format="json",
+        )
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {login.data['access']}",
+        )
+
+        response = self.client.post(
+            reverse("password-change"),
+            {
+                "old_password": "Secure-Test-Password-123",
+                "new_password": "Different-Secure-Password-456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("Different-Secure-Password-456"))
+        protected_response = self.client.get(reverse("my-organizations"))
+        refresh_response = self.client.post(
+            reverse("token_refresh"),
+            {"refresh": login.data["refresh"]},
+            format="json",
+        )
+        self.assertEqual(protected_response.status_code, 401)
+        self.assertEqual(refresh_response.status_code, 401)
+
+    def test_password_change_rejects_wrong_current_and_reused_password(self):
+        self.client.force_authenticate(self.user)
+
+        wrong_current = self.client.post(
+            reverse("password-change"),
+            {
+                "old_password": "wrong-current-password",
+                "new_password": "Different-Secure-Password-456",
+            },
+            format="json",
+        )
+        reused_password = self.client.post(
+            reverse("password-change"),
+            {
+                "old_password": "Secure-Test-Password-123",
+                "new_password": "Secure-Test-Password-123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(wrong_current.status_code, 400)
+        self.assertEqual(reused_password.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("Secure-Test-Password-123"))
 
 
 class AdminAccountApiTests(APITestCase):
@@ -189,6 +245,8 @@ class AdminAccountApiTests(APITestCase):
             reverse("user-list"),
             {
                 "username": "new_technician",
+                "first_name": "Nueva",
+                "last_name": "Técnica",
                 "email": "new_technician@example.test",
                 "password": "J9#rVm2!xQa7Lp4",
                 "role": "technician",
@@ -200,7 +258,31 @@ class AdminAccountApiTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         created_user = get_user_model().objects.get(username="new_technician")
         self.assertTrue(created_user.check_password("J9#rVm2!xQa7Lp4"))
+        self.assertEqual(created_user.first_name, "Nueva")
+        self.assertEqual(created_user.last_name, "Técnica")
+        self.assertTrue(
+            OrganizationMembership.objects.filter(
+                organization=self.organization,
+                user=created_user,
+                location=self.location,
+                role=OrganizationMembership.Role.TECHNICIAN,
+            ).exists()
+        )
         self.assertNotIn("password", response.data)
+
+    def test_admin_cannot_change_another_users_password_through_user_patch(self):
+        self.client.force_authenticate(self.admin)
+        original_password_hash = self.student.password
+
+        response = self.client.patch(
+            reverse("user-detail", args=[self.student.pk]),
+            {"password": "Different-Secure-Password-456"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.password, original_password_hash)
 
     def test_non_admin_cannot_manage_users_or_locations(self):
         self.client.force_authenticate(self.student)

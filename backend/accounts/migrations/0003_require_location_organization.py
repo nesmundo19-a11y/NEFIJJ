@@ -40,7 +40,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="user",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     ("role__in", ["admin", "superadmin"]),
                     ("location__isnull", False),
                     _connector="OR",

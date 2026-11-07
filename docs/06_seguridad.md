@@ -32,6 +32,8 @@
 - Configurar `DEBUG=False`, `ALLOWED_HOSTS` y copias de seguridad protegidas en producción.
 - Usar consultas parametrizadas/ORM y escapar contenido al mostrarlo. CSRF se configura según el mecanismo de autenticación: la protección CSRF no sustituye autorización, validación ni mitigación de XSS.
 - Registrar eventos administrativos y cambios relevantes sin incluir secretos ni datos innecesarios.
+- Para evidencia fotográfica, limitar tipo, tamaño y resolución en el servidor, limitar acceso a la imagen con las mismas reglas de tenant/objeto que la incidencia, evitar publicar `MEDIA_ROOT` como directorio abierto y definir retención y tratamiento de metadatos EXIF antes de producción. La URL del archivo no es autorización: cada lectura debe autenticar al usuario y volver a comprobar el alcance del reporte.
+- Para alertas de peligro vital, autenticar y auditar quién puede emitir/actualizar/cancelar avisos, limitar destinatarios por zona/organización según la decisión aprobada y no presentarlas como garantizadas si el dispositivo está sin red. No usar alertas de prueba como avisos reales.
 
 ## 6. Seguridad del entorno de desarrollo Windows
 - El archivo `backend/.env` y `mobile/.env.local` son locales e ignorados por Git. No copiarlos a incidencias, capturas, documentación compartida ni al repositorio; `EXPO_PUBLIC_*` sí queda visible dentro del paquete móvil y solo debe contener la URL pública de desarrollo.

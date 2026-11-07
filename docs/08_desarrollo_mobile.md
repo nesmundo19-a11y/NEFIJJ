@@ -5,21 +5,33 @@
 - Expo Go instalado en el dispositivo para pruebas de desarrollo.
 - Backend NEFIJJ ejecutándose y accesible desde el dispositivo.
 
-La carpeta `mobile/` puede estar vacía al iniciar. Crear el proyecto Expo una sola vez; no ejecutar el generador encima de una aplicación existente.
+El proyecto existente ya incluye `mobile/package.json` y `mobile/package-lock.json`; no generes una app nueva al clonar/descargar el repositorio.
 
-## 2. Inicializar la aplicación
+## 2. Descargar e instalar dependencias del proyecto existente
+Después de clonar/descargar el repositorio, desde `mobile/` instala las versiones bloqueadas:
+
+```powershell
+cd mobile
+npm ci
+```
+
+En Windows también puedes usar `npm.cmd ci` si PowerShell bloquea `npm.ps1`. Para el backend, crea `.venv` e instala `requirements.txt` siguiendo [07_desarrollo_backend.md](./07_desarrollo_backend.md); Pillow ya está incluido ahí. Se necesita una instancia autorizada de MySQL/MariaDB solo si se va a probar la base operativa. Los archivos `.env` y credenciales son locales, están ignorados por Git y deben configurarse aparte; no compartirlos.
+
+La carpeta `mobile/` solo debe inicializarse si realmente está vacía y no contiene un proyecto existente.
+
+## 3. Inicializar una aplicación vacía (solo si corresponde)
 Desde la raíz del repositorio, solo si `mobile/` aún no contiene un proyecto:
 
 ```powershell
 cd mobile
 npx create-expo-app@latest . --template blank
 npm install axios @react-navigation/native @react-navigation/native-stack
-npx expo install expo-secure-store react-native-screens react-native-safe-area-context
+npx expo install expo-secure-store expo-image-picker react-native-screens react-native-safe-area-context
 ```
 
 Confirmar en `package.json` las dependencias instaladas y las versiones compatibles. La app debe separar la presentación de las llamadas HTTP, manejar estados de carga/error y no duplicar reglas de autorización que corresponden al backend.
 
-## 3. URL de la API
+## 4. URL de la API
 Configurar `EXPO_PUBLIC_API_URL` en el entorno local, por ejemplo:
 
 ```text
@@ -33,7 +45,12 @@ Si el teléfono no puede iniciar sesión, comprobar desde su navegador `http://<
 
 La IP LAN se detecta dinámicamente y puede cambiar. Consultar la dirección actual en Windows antes de conectar el teléfono. Si cambia, actualizar `EXPO_PUBLIC_API_URL` y `NEFIJJ_DEMO_ALLOWED_HOSTS`. La regla de firewall debe limitarse a una red privada de confianza y `LocalSubnet`; no cambiar a perfil privado una red pública.
 
-## 4. Ejecutar y probar
+### Conexión a la base operativa MySQL
+Para mostrar los registros existentes y guardar reportes en `nefijj_db`, `EXPO_PUBLIC_API_URL` debe apuntar al servidor Django que usa `config.settings` y la conexión `default` de MySQL/MariaDB, normalmente el puerto 8000, por ejemplo `http://<IP-LAN-DEL-COMPUTADOR>:8000/api/v1`. La app no se conecta directamente al puerto 3308 del motor y no debe incluir credenciales de base de datos.
+
+No usar la URL del backend DEMO (puerto 8001 o `config.demo_settings`) para validar integración con MySQL: esa instancia responde desde SQLite. La configuración local apunta a `http://192.168.1.5:8000/api/v1`; comprobar la IP antes de usarla y reiniciar Expo con `npx.cmd expo start --clear --lan --go`. La lectura y escritura API↔MySQL se probaron desde el computador; todavía falta la prueba visual/funcional desde un teléfono. Django debe incluir la IP LAN en `DJANGO_ALLOWED_HOSTS`; sin ella devuelve HTTP 400 `DisallowedHost`. La pantalla Cuenta permite cambiar la contraseña; administradores organizacionales pueden crear usuarios y el superadministrador puede hacerlo desde la organización seleccionada. Nunca guardar contraseñas en SecureStore ni en `.env.local`.
+
+## 5. Ejecutar y probar
 Desde `mobile/`:
 
 ```powershell
@@ -57,9 +74,11 @@ python manage.py runserver 0.0.0.0:8000
 
 En `mobile/.env.local`, asignar `EXPO_PUBLIC_API_URL=http://<IP-LAN-DEL-COMPUTADOR>:8000/api/v1`; desde `mobile/`, ejecutar `npx.cmd expo start --clear --lan --go` en una terminal interactiva y escanear el QR de desarrollo. Requiere que el firewall permita TCP 8000/8081 solo en una red privada de confianza. No utilizar túnel público ni el servidor de desarrollo en producción. Para detener ambos procesos, usar `Ctrl+C` en sus terminales.
 
+Si el puerto 8000 ya está ocupado por otro backend, iniciar el backend DEMO aislado en 8001 y usar `EXPO_PUBLIC_API_URL=http://<IP-LAN-DEL-COMPUTADOR>:8001/api/v1`; Expo Go obtiene la interfaz desde Metro (8081) y los datos desde ese API. El servidor MySQL y el backend DEMO usan puertos/configuraciones separados; la prueba con Expo debe usar `config.demo_settings`, no `nefijj_db`.
+
 La navegación depende del rol devuelto por la API: el superadministrador abre gestión básica de organizaciones; el administrador organizacional abre el panel de incidencias; técnico y usuario final tienen flujos operativos distintos. Si la cuenta pertenece a varias organizaciones, debe elegir una antes de consultar datos y puede cambiarla desde la navegación. El cliente envía `X-Organization-ID`; el servidor valida la membresía.
 
-El administrador organizacional puede filtrar incidencias por sede/estado, asignar o retirar un técnico activo de su sede, cerrar incidencias resueltas y reabrir cerradas. El usuario final crea reportes propios; el técnico atiende los que tiene asignados. Las pantallas móviles completas para usuarios, sedes, categorías y protocolos siguen pendientes.
+El administrador organizacional puede filtrar incidencias por sede/estado, asignar o retirar un técnico activo de su sede, cerrar incidencias resueltas y reabrir cerradas, además de gestionar categorías. El usuario final crea reportes propios y puede adjuntar evidencia; el técnico atiende las que tiene asignadas. Las pantallas móviles completas para usuarios, sedes y protocolos siguen pendientes.
 
 Los registros que empiezan por `DEMO -` son ficticios y no representan protocolos reales. Para probar con credenciales, usar solamente el entorno separado `config.demo_settings` y la contraseña aleatoria temporal que imprime el comando DEMO. Las cuentas demo del MariaDB histórico siguen sin contraseña utilizable.
 
@@ -71,17 +90,24 @@ npx.cmd expo start --clear
 
 Esto recarga la configuración local y limpia la caché del bundler. La app actual usa Expo SDK 58, React Native 0.88 y navegación nativa; comprobar compatibilidad de dependencias con `npx expo install --check`.
 
-## 5. Sesión y seguridad
+## 6. Sesión y seguridad
 - Guardar los tokens mediante `expo-secure-store`.
 - Enviar el token de acceso en `Authorization: Bearer <access_token>`.
 - Renovar la sesión según el endpoint de refresh y limpiar credenciales si la renovación falla o el usuario cierra sesión.
 - No persistir contraseñas, no imprimir tokens y no permitir que datos del cliente establezcan rol, sede, reportante o estado inicial.
 - Usar HTTPS en entornos compartidos o de producción. HTTP solo para desarrollo local controlado.
 
-## 6. Estado de validación
+## 7. Estado de validación
 El bundle Android se exportó correctamente después de los cambios de navegación multiempresa. La exportación genera un bundle, no un APK. La interacción visual en teléfono, selección de organización, cambio de tenant, asignación, estados, sesión expirada y pérdida de red aún requiere validación manual. Consultar [09_pruebas.md](./09_pruebas.md) y la bitácora [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
 
-## 7. Roles, invitaciones y entrega instalable
-Los roles móviles son `superadmin`, `organization_admin`, `technician`, `user` y `member` (selector pendiente de elección). El selector de organización y el header de tenant están implementados. La vinculación al tenant solo está disponible actualmente por API autenticada; no hay pantalla para introducir el código ni escanear un QR, ni carga de fotos/videos, captura GPS o wizard de tres pasos. La pantalla superadmin crea organizaciones y cambia su estado, pero no presenta analíticas globales. Los límites completos están en la sección 7 de [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
+## 8. Roles, invitaciones y entrega instalable
+Los roles móviles son `superadmin`, `organization_admin`, `technician`, `user` y `member` (selector pendiente de elección). El selector de organización y el header de tenant están implementados. La vinculación al tenant solo está disponible actualmente por API autenticada; no hay pantalla para introducir el código ni escanear un QR. El usuario puede tomar/seleccionar una foto JPG/PNG de hasta 10 MB, previsualizarla y adjuntarla al reporte; el backend protege su descarga por permisos de la incidencia. Administradores organizacionales y superadministradores pueden gestionar categorías desde la app. Se mejoraron los formularios y las tarjetas de estado/prioridad. La prueba en dispositivo real sigue pendiente. Tampoco hay captura GPS ni wizard de tres pasos. La pantalla superadmin crea organizaciones y cambia su estado, pero no presenta analíticas globales. Los límites completos están en la sección 7 de [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
+
+### Validación pendiente y próximo desarrollo
+La fase de fotos, categorías y primera mejora visual ya está implementada; verificar permisos de cámara/galería y el flujo de punta a punta en un teléfono Expo Go, además de la persistencia de una imagen en MySQL con autorización y limpieza de prueba.
+
+Se acordó como trabajo futuro enviar por push avisos informativos de sismos ya publicados por el SGC a todos los dispositivos registrados; no son alertas tempranas, no requieren acuse y dependen de internet. La integración está pendiente porque la página principal del SGC proporcionada no identifica un feed/API verificable. No se ha agregado `expo-notifications` ni se implementó entrega push. Cuando se confirme la fuente, Expo push requerirá `expo-notifications`, credenciales de plataforma y un development build; no funciona en Expo Go. Los protocolos existentes siguen siendo información estática; no prometer detección ni entrega garantizada.
+
+El orden final y las decisiones técnicas se revisarán antes de iniciar la implementación. Los requisitos y criterios de aceptación están en [02_requisitos.md](./02_requisitos.md) y [09_pruebas.md](./09_pruebas.md).
 
 `expo export --platform android` genera un bundle exportado, no un APK instalable. La generación y firma de un APK requieren un flujo de compilación Android (por ejemplo, EAS Build o Gradle local), configuración de credenciales de firma y validación en dispositivo. No se garantiza que un servicio de compilación alojado sea gratuito; no se ha generado ni validado un APK en este proyecto.

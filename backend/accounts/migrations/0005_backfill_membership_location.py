@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="organizationmembership",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     ("role", "organization_admin"),
                     ("location__isnull", False),
                     _connector="OR",

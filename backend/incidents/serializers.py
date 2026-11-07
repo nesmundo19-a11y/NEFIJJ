@@ -1,8 +1,24 @@
+from django.urls import reverse
 from rest_framework import serializers
 
 from accounts.models import Location
+from accounts.tenancy import get_selected_organization
 
 from .models import Category, EmergencyProtocol, Incident, IncidentEvent
+
+
+class ProtectedEvidenceImageField(serializers.ImageField):
+    def to_representation(self, value):
+        if not value:
+            return None
+
+        incident = self.parent.instance
+        if incident is None or incident.pk is None:
+            return None
+
+        url = reverse("incident-evidence", kwargs={"pk": incident.pk})
+        request = self.context.get("request")
+        return request.build_absolute_uri(url) if request else url
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -15,6 +31,10 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class IncidentSerializer(serializers.ModelSerializer):
+    MAX_EVIDENCE_BYTES = 10 * 1024 * 1024
+    ALLOWED_EVIDENCE_FORMATS = {"JPEG", "PNG"}
+
+    evidence_image = ProtectedEvidenceImageField(required=False, allow_null=True)
     category_id = serializers.PrimaryKeyRelatedField(
         source="category",
         queryset=Category.objects.filter(is_active=True),
@@ -37,6 +57,7 @@ class IncidentSerializer(serializers.ModelSerializer):
             "location_id",
             "reported_by",
             "assigned_to",
+            "evidence_image",
             "created_at",
             "updated_at",
         )
@@ -50,6 +71,35 @@ class IncidentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return
+
+        organization = get_selected_organization(request)
+        if organization is not None:
+            self.fields["category_id"].queryset = Category.objects.filter(
+                is_active=True,
+                organization=organization,
+            )
+
+    def validate_evidence_image(self, image):
+        if not image:
+            return image
+        if image.size > self.MAX_EVIDENCE_BYTES:
+            raise serializers.ValidationError(
+                "La imagen no puede superar los 10 MB."
+            )
+        decoded_image = getattr(image, "image", None)
+        if decoded_image and decoded_image.format not in self.ALLOWED_EVIDENCE_FORMATS:
+            raise serializers.ValidationError("La imagen debe ser JPG o PNG.")
+        if decoded_image and decoded_image.width * decoded_image.height > 40_000_000:
+            raise serializers.ValidationError(
+                "La resolución de la imagen supera el límite permitido."
+            )
+        return image
 
 
 class IncidentEventSerializer(serializers.ModelSerializer):
@@ -90,3 +140,16 @@ class EmergencyProtocolSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "location_name", "created_at", "updated_at")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return
+
+        organization = get_selected_organization(request)
+        if organization is not None:
+            self.fields["location_id"].queryset = Location.objects.filter(
+                is_active=True,
+                organization=organization,
+            )

@@ -8,11 +8,13 @@ class Category(models.Model):
         on_delete=models.PROTECT,
         related_name="categories",
     )
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=150)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        managed = False
+        db_table = "incidents_category"
         ordering = ["name"]
         verbose_name_plural = "categories"
         constraints = [
@@ -39,10 +41,10 @@ class Incident(models.Model):
         HIGH = "alta", "Alta"
         CRITICAL = "critica", "Crítica"
 
-    title = models.CharField(max_length=200)
+    title = models.CharField(max_length=255)
     description = models.TextField()
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    priority = models.CharField(max_length=20, choices=Priority.choices, default=Priority.MEDIUM)
+    status = models.CharField(max_length=50, choices=Status.choices, default=Status.PENDING)
+    priority = models.CharField(max_length=50, choices=Priority.choices, default=Priority.MEDIUM)
     organization = models.ForeignKey(
         "accounts.Organization",
         on_delete=models.PROTECT,
@@ -62,10 +64,17 @@ class Incident(models.Model):
         blank=True,
         related_name="assigned_incidents",
     )
+    evidence_image = models.ImageField(
+        upload_to="evidences/%Y/%m/",
+        null=True,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        managed = False
+        db_table = "incidents_incident"
         ordering = ["-created_at", "-id"]
         indexes = [
             models.Index(fields=["organization", "status"]),
@@ -96,6 +105,8 @@ class IncidentEvent(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        managed = False
+        db_table = "incidents_incidentevent"
         ordering = ["created_at", "id"]
 
 
@@ -113,6 +124,8 @@ class EmergencyProtocol(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        managed = False
+        db_table = "incidents_emergencyprotocol"
         ordering = ["title"]
 
     def __str__(self):

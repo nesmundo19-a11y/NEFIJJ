@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
                 ('location', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='users', to='accounts.location')),
             ],
             options={
-                'constraints': [models.CheckConstraint(condition=models.Q(('role', 'admin'), ('location__isnull', False), _connector='OR'), name='user_non_admin_requires_location')],
+                'constraints': [models.CheckConstraint(check=models.Q(('role', 'admin'), ('location__isnull', False), _connector='OR'), name='user_non_admin_requires_location')],
             },
             managers=[
                 ('objects', accounts.models.NEFIJJUserManager()),

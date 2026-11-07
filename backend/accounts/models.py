@@ -15,6 +15,8 @@ class Organization(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        managed = False
+        db_table = "accounts_organization"
         ordering = ["name"]
 
     @property
@@ -53,6 +55,8 @@ class OrganizationMembership(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        managed = False
+        db_table = "accounts_organizationmembership"
         ordering = ["organization__name", "user__username"]
         constraints = [
             models.UniqueConstraint(
@@ -60,7 +64,7 @@ class OrganizationMembership(models.Model):
                 name="unique_user_organization_membership",
             ),
             models.CheckConstraint(
-                condition=models.Q(role="organization_admin")
+                check=models.Q(role="organization_admin")
                 | models.Q(location__isnull=False),
                 name="organization_member_requires_location",
             ),
@@ -113,6 +117,8 @@ class OrganizationInvitation(models.Model):
     )
 
     class Meta:
+        managed = False
+        db_table = "accounts_organizationinvitation"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["organization", "expires_at"]),
@@ -134,6 +140,8 @@ class Location(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        managed = False
+        db_table = "accounts_location"
         ordering = ["name"]
 
     def __str__(self):
@@ -164,9 +172,11 @@ class User(AbstractUser):
     )
 
     class Meta:
+        managed = False
+        db_table = "accounts_user"
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(role__in=["admin", "superadmin"])
+                check=models.Q(role__in=["admin", "superadmin"])
                 | models.Q(location__isnull=False),
                 name="user_non_admin_requires_location",
             ),

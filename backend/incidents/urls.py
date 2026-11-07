@@ -7,6 +7,7 @@ from .views import (
     EmergencyProtocolListCreateView,
     IncidentAssignView,
     IncidentDetailView,
+    IncidentEvidenceView,
     IncidentEventsView,
     IncidentListCreateView,
     IncidentStatusView,
@@ -14,6 +15,7 @@ from .views import (
 
 urlpatterns = [
     path("incidents/", IncidentListCreateView.as_view(), name="incident-list"),
+    path("incidents/<int:pk>/evidence/", IncidentEvidenceView.as_view(), name="incident-evidence"),
     path("incidents/<int:pk>/", IncidentDetailView.as_view(), name="incident-detail"),
     path("incidents/<int:pk>/assign/", IncidentAssignView.as_view(), name="incident-assign"),
     path("incidents/<int:pk>/status/", IncidentStatusView.as_view(), name="incident-status"),

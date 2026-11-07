@@ -14,17 +14,12 @@ import { useFocusEffect } from "@react-navigation/native";
 import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 import { useAuth } from "../auth/AuthContext";
+import EvidenceImage from "../components/EvidenceImage";
+import { IncidentBadges } from "../components/IncidentBadges";
 
 const NEXT_STATUS = {
   pendiente: "en_proceso",
   en_proceso: "resuelta",
-};
-
-const STATUS_LABELS = {
-  pendiente: "Pendiente",
-  en_proceso: "En proceso",
-  resuelta: "Resuelta",
-  cerrada: "Cerrada",
 };
 
 export default function IncidentsScreen({ navigation }) {
@@ -87,12 +82,11 @@ export default function IncidentsScreen({ navigation }) {
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <Text style={styles.incidentTitle}>{item.title}</Text>
-          <Text style={styles.priority}>{item.priority}</Text>
         </View>
+        <IncidentBadges priority={item.priority} status={item.status} />
         <Text style={styles.description}>{item.description}</Text>
-        <Text style={styles.meta}>
-          {STATUS_LABELS[item.status] ?? item.status} · {new Date(item.created_at).toLocaleDateString()}
-        </Text>
+        {item.evidence_image ? <EvidenceImage uri={item.evidence_image} /> : null}
+        <Text style={styles.meta}>{new Date(item.created_at).toLocaleDateString()}</Text>
         {canUpdate ? (
           <Pressable
             accessibilityRole="button"
@@ -221,10 +215,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   card: {
-    marginBottom: 12,
+    marginBottom: 14,
     padding: 16,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2eae7",
+    borderRadius: 16,
     backgroundColor: "#ffffff",
+    elevation: 2,
   },
   cardHeading: {
     flexDirection: "row",
@@ -236,10 +233,6 @@ const styles = StyleSheet.create({
     color: "#172321",
     fontSize: 16,
     fontWeight: "700",
-  },
-  priority: {
-    color: "#52615e",
-    textTransform: "capitalize",
   },
   description: {
     marginTop: 8,

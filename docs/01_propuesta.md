@@ -8,7 +8,7 @@ NEFIJJ centraliza el reporte, seguimiento y resolución de incidencias de infrae
 
 El sistema permite que los usuarios reporten problemas y consulten sus propios casos; los técnicos atiendan los casos asignados dentro de su sede; y los administradores generales administren usuarios, catálogos, sedes y operaciones de todas las sedes. También ofrece protocolos y contactos de emergencia asociados a cada sede.
 
-El proyecto no contempla, en su primera versión, asignación automática, chat en tiempo real, seguimiento GPS, notificaciones push ni registro público de cuentas. Las cuentas son creadas por un administrador.
+La versión actual no implementa asignación automática, chat en tiempo real, seguimiento GPS, notificaciones push ni registro público de cuentas. Como evolución se acordaron avisos informativos de sismos ya publicados por el SGC; esa integración sigue pendiente de identificar un feed/API oficial verificable. Las cuentas son creadas por un administrador.
 
 ## 3. Objetivos
 ### Objetivo general
@@ -38,7 +38,8 @@ La centralización y el historial de cambios mejoran la trazabilidad y ayudan a 
 - Backend Django REST Framework conectado a MariaDB local de XAMPP mediante el backend compatible con MySQL, con cuentas, sedes, incidencias, categorías, protocolos, JWT y control multisedes.
 - Aplicación Expo con inicio de sesión, consulta y reporte de incidencias, protocolos y un panel operativo para administradores.
 - Los datos `DEMO` son ficticios y sirven exclusivamente para pruebas; no son información institucional ni protocolos de emergencia reales.
-- La administración móvil de usuarios, sedes y catálogos no está implementada; estas tareas se realizan mediante Django Admin o la API administrativa.
+- La administración móvil de categorías está implementada; la gestión de usuarios y sedes sigue en Django Admin o la API administrativa.
+- La app ya permite adjuntar fotos a reportes y se mejoraron formularios/tarjetas. Falta validación en teléfono y una prueba de persistencia de imágenes en MySQL. Los protocolos existentes son información estática. Los avisos informativos de sismos del SGC se acordaron como trabajo futuro, pero no se implementarán hasta verificar una fuente oficial de datos.
 - Las pruebas automatizadas de backend usan SQLite en memoria. Las pruebas manuales de todos los flujos en un teléfono aún deben completarse.
 
 La bitácora técnica, los comandos que se ejecutaron y los pendientes están en [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).

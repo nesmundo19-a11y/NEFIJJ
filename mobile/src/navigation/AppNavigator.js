@@ -5,7 +5,10 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import AdminIncidentsScreen from "../screens/AdminIncidentsScreen";
 import { useAuth } from "../auth/AuthContext";
+import CategoryManagementScreen from "../screens/CategoryManagementScreen";
+import ChangePasswordScreen from "../screens/ChangePasswordScreen";
 import CreateIncidentScreen from "../screens/CreateIncidentScreen";
+import CreateUserScreen from "../screens/CreateUserScreen";
 import EmergenciesScreen from "../screens/EmergenciesScreen";
 import IncidentsScreen from "../screens/IncidentsScreen";
 import LoginScreen from "../screens/LoginScreen";
@@ -72,17 +75,23 @@ export default function AppNavigator() {
                           ? "Administrar incidencias"
                           : "Mis incidencias",
                   headerRight:
-                    user.role !== "superadmin" &&
-                    (user.organizations ?? []).filter(
-                      (membership) => membership.organization_status === "active",
-                    ).length > 1
-                      ? () => (
+                    () => (
+                      <View style={styles.headerActions}>
+                        {user.role !== "superadmin" &&
+                        (user.organizations ?? []).filter(
+                          (membership) => membership.organization_status === "active",
+                        ).length > 1 ? (
                           <Button
                             onPress={() => navigation.navigate("SelectOrganization")}
-                            title="Cambiar empresa"
+                            title="Empresa"
                           />
-                        )
-                      : undefined,
+                        ) : null}
+                        <Button
+                          onPress={() => navigation.navigate("AccountSettings")}
+                          title="Cuenta"
+                        />
+                      </View>
+                    ),
                 })}
               />
               {user.role !== "superadmin" &&
@@ -110,6 +119,25 @@ export default function AppNavigator() {
                   options={{ title: "Emergencias" }}
                 />
               ) : null}
+              {user.role === "organization_admin" || user.role === "superadmin" ? (
+                <Stack.Screen
+                  name="CreateUser"
+                  component={CreateUserScreen}
+                  options={{ title: "Crear usuario" }}
+                />
+              ) : null}
+              {user.role === "organization_admin" || user.role === "superadmin" ? (
+                <Stack.Screen
+                  name="Categories"
+                  component={CategoryManagementScreen}
+                  options={{ title: "Administrar categorías" }}
+                />
+              ) : null}
+              <Stack.Screen
+                name="AccountSettings"
+                component={ChangePasswordScreen}
+                options={{ title: "Cambiar contraseña" }}
+              />
             </>
           ) : (
             <Stack.Screen
@@ -136,5 +164,9 @@ const styles = StyleSheet.create({
     marginVertical: 16,
     color: "#263238",
     textAlign: "center",
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
   },
 });

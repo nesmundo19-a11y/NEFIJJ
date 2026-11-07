@@ -40,7 +40,18 @@ export default function EmergenciesScreen() {
           contentContainerStyle={protocols.length ? styles.list : styles.emptyList}
           data={protocols}
           keyExtractor={(item) => String(item.id)}
-          ListEmptyComponent={<Text style={styles.empty}>No hay protocolos activos para esta sede.</Text>}
+          ListHeaderComponent={
+            <View style={styles.notice}>
+              <Text style={styles.noticeTitle}>Información preventiva</Text>
+              <Text style={styles.noticeText}>
+                Estos protocolos son información de referencia, no alertas en tiempo real.
+                Ante un peligro inmediato, sigue las indicaciones de los servicios oficiales.
+              </Text>
+            </View>
+          }
+          ListEmptyComponent={
+            <Text style={styles.empty}>No hay protocolos activos para esta sede.</Text>
+          }
           refreshControl={
             <RefreshControl
               onRefresh={() => {
@@ -72,16 +83,37 @@ const styles = StyleSheet.create({
   list: {
     paddingBottom: 24,
   },
+  notice: {
+    marginBottom: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e7c56d",
+    borderRadius: 14,
+    backgroundColor: "#fff8e6",
+  },
+  noticeTitle: {
+    color: "#684800",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  noticeText: {
+    marginTop: 6,
+    color: "#684800",
+    lineHeight: 20,
+  },
   emptyList: {
     flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   card: {
-    marginBottom: 12,
+    marginBottom: 14,
     padding: 16,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2eae7",
+    borderRadius: 16,
     backgroundColor: "#ffffff",
+    elevation: 2,
   },
   title: {
     color: "#172321",

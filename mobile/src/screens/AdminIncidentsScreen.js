@@ -15,6 +15,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 import { useAuth } from "../auth/AuthContext";
+import EvidenceImage from "../components/EvidenceImage";
+import { IncidentBadges } from "../components/IncidentBadges";
 
 const STATUS_FILTERS = [
   { value: "", label: "Todas" },
@@ -23,10 +25,6 @@ const STATUS_FILTERS = [
   { value: "resuelta", label: "Resueltas" },
   { value: "cerrada", label: "Cerradas" },
 ];
-
-const STATUS_LABELS = Object.fromEntries(
-  STATUS_FILTERS.filter(({ value }) => value).map(({ value, label }) => [value, label]),
-);
 
 async function fetchAllPages(endpoint) {
   const results = [];
@@ -174,11 +172,11 @@ export default function AdminIncidentsScreen({ navigation }) {
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <Text style={styles.incidentTitle}>{item.title}</Text>
-          <Text style={styles.priority}>{item.priority}</Text>
         </View>
+        <IncidentBadges priority={item.priority} status={item.status} />
         <Text style={styles.description}>{item.description}</Text>
+        {item.evidence_image ? <EvidenceImage uri={item.evidence_image} /> : null}
         <Text style={styles.meta}>
-          {STATUS_LABELS[item.status] ?? item.status} ·{" "}
           {locationNames.get(item.location_id) ?? `Sede ${item.location_id}`}
         </Text>
         <Text style={styles.meta}>
@@ -271,6 +269,20 @@ export default function AdminIncidentsScreen({ navigation }) {
         style={styles.secondaryButton}
       >
         <Text style={styles.secondaryButtonText}>Protocolos de emergencia</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => navigation.navigate("CreateUser")}
+        style={styles.secondaryButton}
+      >
+        <Text style={styles.secondaryButtonText}>Crear usuario</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => navigation.navigate("Categories")}
+        style={styles.secondaryButton}
+      >
+        <Text style={styles.secondaryButtonText}>Administrar categorías</Text>
       </Pressable>
 
       <Text style={styles.filterLabel}>Sede</Text>
@@ -411,10 +423,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   card: {
-    marginBottom: 12,
+    marginBottom: 14,
     padding: 16,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2eae7",
+    borderRadius: 16,
     backgroundColor: "#ffffff",
+    elevation: 2,
   },
   cardHeading: {
     flexDirection: "row",
@@ -426,10 +441,6 @@ const styles = StyleSheet.create({
     color: "#172321",
     fontSize: 16,
     fontWeight: "700",
-  },
-  priority: {
-    color: "#52615e",
-    textTransform: "capitalize",
   },
   description: {
     marginTop: 8,

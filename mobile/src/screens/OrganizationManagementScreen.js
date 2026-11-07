@@ -30,7 +30,7 @@ async function fetchOrganizations() {
   }
 }
 
-export default function OrganizationManagementScreen() {
+export default function OrganizationManagementScreen({ navigation }) {
   const { user, logout } = useAuth();
   const [organizations, setOrganizations] = useState([]);
   const [name, setName] = useState("");
@@ -173,6 +173,32 @@ export default function OrganizationManagementScreen() {
                   <Text style={styles.status}>
                     {isActive ? "Activa" : "Suspendida"}
                   </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      navigation.navigate("CreateUser", {
+                        organizationId: item.id,
+                        organizationName: item.name,
+                      })
+                    }
+                    style={styles.userButton}
+                  >
+                    <Text style={styles.userButtonText}>Crear usuario</Text>
+                  </Pressable>
+                  {isActive ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() =>
+                        navigation.navigate("Categories", {
+                          organizationId: item.id,
+                          organizationName: item.name,
+                        })
+                      }
+                      style={styles.userButton}
+                    >
+                      <Text style={styles.userButtonText}>Administrar categorías</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
                 <Switch
                   accessibilityLabel={`Estado de ${item.name}`}
@@ -271,6 +297,18 @@ const styles = StyleSheet.create({
   status: {
     marginTop: 5,
     color: "#52615e",
+  },
+  userButton: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#e1efec",
+  },
+  userButtonText: {
+    color: "#0b6b63",
+    fontWeight: "600",
   },
   list: {
     paddingBottom: 24,

@@ -1,12 +1,12 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
-
 from .views import (
     CreateInvitationView,
+    ChangePasswordView,
     JoinOrganizationView,
     LocationDetailView,
     LocationListCreateView,
     NEFIJJTokenObtainPairView,
+    NEFIJJTokenRefreshView,
     MyOrganizationsView,
     OrganizationListCreateView,
     OrganizationStatusView,
@@ -17,7 +17,8 @@ from .views import (
 
 urlpatterns = [
     path("auth/token/", NEFIJJTokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("auth/token/refresh/", NEFIJJTokenRefreshView.as_view(), name="token_refresh"),
+    path("auth/password/change/", ChangePasswordView.as_view(), name="password-change"),
     path("organizations/", OrganizationListCreateView.as_view(), name="organization-list"),
     path(
         "organizations/<int:pk>/status/",
