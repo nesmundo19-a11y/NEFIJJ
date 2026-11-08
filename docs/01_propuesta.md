@@ -47,6 +47,14 @@ La bitácora técnica, los comandos que se ejecutaron y los pendientes están en
 ## 7. Evolución a una plataforma multiempresa
 El backend ya incorpora organizaciones, membresías con rol y sede, aislamiento de incidencias/categorías, invitaciones de un uso y selección de organización. La app móvil envía el tenant activo y tiene navegación inicial por rol, selector de organización y gestión básica de organizaciones para superadministradores.
 
-La entrega sigue parcial: faltan la prueba de la migración con una copia representativa de MariaDB, una revisión manual en teléfono, la interfaz móvil de invitaciones/vinculación QR, métricas y varias pantallas de administración organizacional. El estado verificado y los límites están en [09_pruebas.md](./09_pruebas.md) y [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
+La entrega sigue parcial: faltan la prueba de la migración con una copia representativa de MariaDB, una revisión manual en teléfono y varias pantallas de administración organizacional. La interfaz móvil de invitaciones/vinculación QR ya está implementada; su validación en dispositivo sigue pendiente. El estado verificado y los límites están en [09_pruebas.md](./09_pruebas.md) y [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
 
 Decisión de cliente: una sola app operativa para administradores de empresa, técnicos/responsables y usuarios; usar Django Admin como consola web separada del superadministrador en el MVP. No se requieren dos APKs. El QR de Expo Go solo carga la app de desarrollo y no crea ni vincula una empresa.
+
+El trabajo de invitación QR, el contador/listado global de empresas, el flujo
+móvil de empleado y las alertas de emergencia están organizados por fases en
+[11_hoja_de_ruta_funcional.md](./11_hoja_de_ruta_funcional.md). Las fases 0 a 6 están implementadas en código; las fases 3 a 6 requieren
+validación en dispositivo. Para la Fase 6 se definieron administradores
+organizacionales como emisores, destinatarios activos del tenant, sin acuse,
+tres intentos progresivos, caducidad push de 15 minutos y cancelación dirigida
+a todos. Su operación requiere EAS, un development build y un worker programado.

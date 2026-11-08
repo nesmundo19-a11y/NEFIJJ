@@ -22,6 +22,7 @@
 - **RF11 - Evidencia fotográfica:** desde el formulario móvil, el usuario puede tomar o seleccionar una foto JPG/PNG de hasta 10 MB y adjuntarla opcionalmente a una incidencia. El archivo se valida y almacena fuera de MySQL; la base conserva su ruta relativa. Su consulta requiere acceso autorizado a la incidencia. Falta validar el flujo en un teléfono y probar persistencia con la instancia MySQL operativa.
 - **RF12 - Avisos de sismos del SGC (pendiente de integración):** el alcance acordado es enviar por push a todos los dispositivos registrados avisos informativos sobre sismos que el SGC ya haya registrado; no son alertas tempranas ni se requiere acuse. La entrega requiere internet y un development build de Expo, no Expo Go. La sede/área indicada se mostrará como la publique la fuente; no se filtrará por geografía local. Solo se proporcionó la página principal del SGC, no una API/feed verificable, por lo que la integración permanece pendiente. Se autorizó generar código de modelos/migración para las tablas necesarias, pero no ejecutar ni aplicar cambios en MySQL. La app no sustituye los canales oficiales de emergencia ni garantiza la entrega.
 - **RF13 - Administración móvil de categorías:** los administradores autorizados pueden consultar, crear, editar y desactivar categorías de su organización desde la app. Falta validar el flujo por rol/tenant en un teléfono. Las categorías describen el tipo de incidencia y no sustituyen áreas/responsables.
+- **RF14 - Alertas operativas de emergencia:** solo un administrador de organización activa puede emitir o cancelar una alerta para todos los miembros activos de su organización con dispositivo push registrado. No hay acuse de recepción/lectura. Se reintenta hasta tres veces con esperas progresivas; cada notificación caduca a los 15 minutos. Cancelar detiene reintentos pendientes y programa un aviso de cancelación para todos los dispositivos activos. La aceptación del servicio Expo no confirma que el dispositivo la haya mostrado; la entrega no está garantizada y no reemplaza los canales oficiales. Requiere development build y configuración EAS; no funciona en Expo Go.
 
 ## 3. Requisitos no funcionales (RNF)
 - **RNF01 - Rendimiento:** objetivo de respuesta inferior a 2 segundos para operaciones habituales bajo carga normal, excluyendo latencia de red externa. Medir con datos y entorno representativos.
@@ -39,10 +40,19 @@ La versión se acepta cuando las pruebas del documento [09_pruebas.md](./09_prue
 ## 5. Estado y límites conocidos
 - El backend implementa organizaciones, membresías, invitaciones, selección de tenant, filtros por organización y permisos para incidencias, sedes, usuarios, categorías y protocolos. La migración de datos tiene una prueba aislada de asignación y reversión.
 - La app Expo implementa selección de organización, encabezado `X-Organization-ID`, gestión básica de organizaciones para superadministradores, panel de incidencias organizacional y flujos existentes de usuarios/técnicos.
-- No están implementados en móvil el escáner QR/flujo de vinculación, métricas/gráficas, notificaciones ni pantallas completas para administrar personal, sedes y protocolos.
+- La app ya permite generar/revocar invitaciones QR y aceptarlas con una cuenta autenticada, eligiendo sede. La validación manual del escáner en teléfono sigue pendiente. Métricas/gráficas y pantallas completas para administrar personal, sedes y protocolos continúan pendientes.
+- El inicio móvil de usuario separa el reporte del historial propio. El formulario mantiene categorías dinámicas, evidencia opcional, mensajes de envío/error y confirmación; fecha y hora las registra el servidor. No se captura GPS. Validación manual en dispositivo pendiente.
 - Áreas/departamentos y enrutamiento automático por responsable no están implementados; actualmente se clasifica por categoría y la asignación del técnico la realiza un administrador.
-- La API y app permiten adjuntar fotos y administrar categorías, pero faltan pruebas manuales en dispositivo y persistencia de foto en MySQL. No hay sistema de alertas de peligro en tiempo real; los protocolos son contenido informativo.
-- El contrato inicial de avisos del SGC está definido; falta identificar y verificar un endpoint/feed oficial para integrar eventos reales. No hay entrega push ni alerta en tiempo real implementada. Los protocolos estáticos siguen siendo informativos. Los criterios están en [09_pruebas.md](./09_pruebas.md).
+- La API y app permiten adjuntar fotos, administrar categorías y emitir/cancelar alertas operativas. La Fase 6 está implementada en código, pero requiere configurar EAS, programar el worker, validar en development build y probar en teléfono. Los protocolos siguen siendo contenido informativo y separado de las alertas.
+- El contrato inicial de avisos del SGC está definido; falta identificar y verificar un endpoint/feed oficial para integrar eventos reales. Los avisos del SGC y las alertas operativas de RF14 son funciones distintas. Los protocolos estáticos siguen siendo informativos. Los criterios están en [09_pruebas.md](./09_pruebas.md).
 - El objetivo de rendimiento RNF01 no se ha medido bajo carga y no debe considerarse certificado.
 - La exportación Android aprobada es un bundle, no un APK; se requiere comprobación manual de la UI y roles en dispositivo.
 - Para el estado real de pruebas y red local, consultar [09_pruebas.md](./09_pruebas.md) y [10_bitacora_desarrollo.md](./10_bitacora_desarrollo.md).
+
+## 6. Evolución pendiente de priorización
+Las fases de flujo móvil de empleado, alertas push de emergencia y revisión
+visual final están organizadas en [11_hoja_de_ruta_funcional.md](./11_hoja_de_ruta_funcional.md).
+La Fase 3 de invitaciones QR está implementada, pendiente de validación manual
+en teléfono. Las decisiones generales de alcance, roles, consola superadmin,
+privacidad de ubicación y alertas están registradas en la Fase 0; cada fase
+futura requiere priorización y autorización explícita antes de implementarse.

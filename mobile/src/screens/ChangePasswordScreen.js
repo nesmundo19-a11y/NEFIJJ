@@ -102,6 +102,14 @@ export default function ChangePasswordScreen() {
           <Text style={styles.buttonText}>Actualizar contraseña</Text>
         )}
       </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        disabled={submitting}
+        onPress={() => logout()}
+        style={[styles.button, styles.logoutButton]}
+      >
+        <Text style={[styles.buttonText, styles.logoutButtonText]}>Cerrar sesión</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -142,5 +150,14 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.6,
+  },
+  logoutButton: {
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#a42323",
+    marginTop: 10,
+  },
+  logoutButtonText: {
+    color: "#a42323",
   },
 });

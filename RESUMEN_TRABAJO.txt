@@ -1,0 +1,157 @@
+RESUMEN DE TRABAJO - NEFIJJ
+Fecha: 7 de noviembre de 2026
+
+PROPOSITO
+---------
+Este documento resume los cambios y las tareas realizadas en el backend Django
+y la aplicación móvil Expo durante esta sesión. No incluye contraseñas, tokens,
+claves, ni valores secretos de archivos .env.
+
+1. INICIO DEL BACKEND Y LA APP
+------------------------------
+- Se revisó la configuración Django y se identificó que el proyecto tiene dos
+  opciones:
+  - config.demo_settings: usa la base de datos SQLite de demostración.
+  - config.settings: usa la base de datos MySQL configurada localmente.
+- Para trabajar con la cuenta real admin_guajira se inició Django con
+  config.settings, que conecta a la base configurada en backend/.env. No se
+  incluyeron ni se copiaron los valores de ese archivo en este documento.
+- Django se inició para aceptar conexiones de la red local:
+  python manage.py runserver 0.0.0.0:8000 --settings=config.settings
+- Se permitió temporalmente la IP Wi-Fi actual mediante DJANGO_ALLOWED_HOSTS
+  en el proceso de desarrollo.
+- La app Expo se inició en modo LAN:
+  npm start -- --lan
+- La app móvil usa EXPO_PUBLIC_API_URL desde mobile/.env.local. Se ajustó la
+  dirección a la IP Wi-Fi vigente durante las pruebas. Esa IP puede cambiar
+  al cambiar de red o reiniciar el router.
+- Se verificó Django con GET a /api/v1/auth/token/: HTTP 405 es esperado porque
+  el endpoint de acceso acepta POST, no GET.
+- Se verificó Expo mediante /status: respuesta HTTP 200.
+- Los servidores son procesos de desarrollo y pueden detenerse al cerrar la
+  terminal o finalizar la sesión de herramientas. Para reiniciarlos, ejecutar
+  los comandos anteriores en dos terminales desde backend/ y mobile/.
+
+2. CUENTA ADMIN_GUAJIRA
+-----------------------
+- Se comprobó que existe una sola cuenta admin_guajira en la base real, está
+  activa y tiene rol de administrador organizacional.
+- Se verificó el inicio de sesión por API usando la IP Wi-Fi de la app.
+- A petición del usuario, se restableció varias veces la contraseña temporal
+  porque las anteriores no funcionaban o eran difíciles de copiar.
+- La contraseña más reciente se generó con letras mayúsculas y números y se
+  probó contra POST /api/v1/auth/token/. La prueba devolvió HTTP 200.
+- Por seguridad, la contraseña temporal no se guarda en este archivo. Usar la
+  contraseña más reciente entregada en el chat y cambiarla después de entrar.
+- También se comprobó que la cuenta pertenece a una organización activa.
+
+3. CORRECCION DE LA LISTA DE INCIDENCIAS
+----------------------------------------
+Problema:
+- La API devolvía error HTTP 500 al listar incidencias que tenían una imagen
+  de evidencia.
+- La causa estaba en la representación del campo de imagen del serializador:
+  al serializar listas, el campo intentaba obtener la instancia de incidencia
+  desde el serializador padre equivocado.
+
+Corrección:
+- backend/incidents/serializers.py: se obtiene la instancia propietaria desde
+  el archivo de imagen asociado al campo, para poder construir correctamente
+  la URL protegida de evidencia.
+- backend/incidents/tests.py: se agregó una comprobación para asegurar que la
+  lista de incidencias incluya una incidencia con evidencia y su URL.
+
+Verificación:
+- La suite IncidentApiTests pasó: 19 pruebas.
+- Se comprobó contra la base real que la API devolvía 4 incidencias.
+- El endpoint de evidencia de la incidencia con foto respondió HTTP 200,
+  Content-Type image/jpeg y entregó los bytes del archivo.
+
+4. CORRECCION DE CARGA DE FOTOS EN LA APP
+-----------------------------------------
+Problema:
+- La API podía entregar la foto, pero la carga desde el componente nativo del
+  móvil fallaba; además, la descarga protegida podía recibir HTTP 401 cuando
+  expiraba el token.
+
+Correcciones:
+- Se añadió expo-file-system compatible con Expo SDK 58.
+- mobile/src/components/EvidenceImage.js ahora descarga la evidencia al
+  almacenamiento temporal del dispositivo usando FileSystem.downloadAsync,
+  adjunta Authorization y X-Organization-ID, verifica el estado HTTP y el tipo
+  MIME, renueva la sesión una vez si recibe 401 y permite reintentar.
+- El componente muestra el estado de carga y mensajes de error más explícitos.
+- mobile/src/api/client.js expone la renovación de token usada por la carga de
+  evidencias y conserva la invalidación de sesión cuando la renovación falla.
+
+Verificación:
+- Se exportó el bundle Android con Expo correctamente.
+- La prueba de regresión de evidencia pasó.
+- Se verificó que el endpoint real entrega la imagen JPEG.
+
+5. ESTILO Y TAMAÑO DE BOTONES
+-----------------------------
+- Se creó mobile/src/components/ActionButton.js con variantes principal,
+  secundaria y discreta.
+- Los botones de acción ahora ocupan el ancho disponible y su texto puede
+  ajustarse a varias líneas. El botón Salir puede conservar ancho compacto.
+- Se actualizaron mobile/src/screens/IncidentsScreen.js y
+  mobile/src/screens/AdminIncidentsScreen.js para usar el componente común.
+- Se mejoraron los estados visuales al presionar, deshabilitar y seleccionar
+  filtros u opciones de asignación.
+- Se corrigió un error fatal de JavaScript: los estilos del botón se leían
+  antes de inicializar StyleSheet.create. Se movió la definición de variantes
+  después de crear los estilos.
+- Después del arreglo, la exportación Android volvió a compilar correctamente.
+
+6. ARCHIVOS MODIFICADOS
+-----------------------
+Backend:
+- backend/incidents/serializers.py
+- backend/incidents/tests.py
+
+Aplicación móvil:
+- mobile/package.json
+- mobile/package-lock.json
+- mobile/src/api/client.js
+- mobile/src/components/EvidenceImage.js
+- mobile/src/components/ActionButton.js
+- mobile/src/screens/IncidentsScreen.js
+- mobile/src/screens/AdminIncidentsScreen.js
+
+7. HERRAMIENTAS Y COMO SE UTILIZARON
+------------------------------------
+- PowerShell: ejecutar comandos locales en Windows, comprobar IP Wi-Fi y
+  puertos, iniciar Django/Expo y probar endpoints HTTP.
+- Entorno virtual Python de backend/.venv: ejecutar Django, inspeccionar
+  cuentas de forma segura, comprobar ajustes y correr pruebas.
+- Django management commands:
+  - manage.py check: revisar la configuración Django.
+  - manage.py test: correr pruebas automatizadas.
+  - manage.py runserver: iniciar la API local.
+  - manage.py shell: verificar estado de usuario y probar autenticación/API.
+- npm y Expo CLI:
+  - npx expo install expo-file-system: instalar la dependencia nativa
+    compatible con el SDK del proyecto.
+  - npm start -- --lan: servir la app a dispositivos en la misma red.
+  - npx expo export --platform android: compilar/exportar el bundle Android.
+  - npx expo-doctor: revisar configuración y dependencias de Expo.
+- APIClient de Django REST Framework: probar autenticación y evidencia contra
+  la configuración de base de datos real.
+- curl: comprobar que la API y Metro respondieran por la IP Wi-Fi.
+- git diff y git diff --check: revisar archivos afectados y formato del diff.
+
+8. RESULTADOS Y NOTAS
+---------------------
+- Expo Doctor pasó 20 de 20 comprobaciones.
+- Las exportaciones Android usadas para validar los cambios terminaron bien.
+- La suite de incidencias pasó; también pasó la prueba específica de evidencia.
+- En una ejecución Django mostró una advertencia de que la clave HMAC JWT
+  configurada tiene menos de 32 bytes. No se revela el valor aquí. Conviene
+  revisar la longitud de DJANGO_SECRET_KEY y cambiarla mediante el proceso
+  seguro de configuración si corresponde.
+- Los cambios de código están en el árbol de trabajo y no se hizo commit.
+- backend/media/ contiene archivos locales de evidencia; no se incluyeron ni
+  copiaron en este informe.
+- Después de cambios en Expo, recargar el proyecto en Expo Go. El teléfono y
+  el computador deben estar en la misma red Wi-Fi.

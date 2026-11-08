@@ -2,11 +2,13 @@ import hashlib
 import secrets
 
 from django.db import transaction
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -117,9 +119,21 @@ class AdminOnlyMixin:
     permission_classes = [IsAuthenticated, IsNEFIJJAdmin]
 
 
+class OrganizationPagination(PageNumberPagination):
+    def get_paginated_response(self, data):
+        response = super().get_paginated_response(data)
+        response.data["summary"] = Organization.objects.aggregate(
+            total=Count("pk"),
+            active=Count("pk", filter=Q(status=Organization.Status.ACTIVE)),
+            suspended=Count("pk", filter=Q(status=Organization.Status.SUSPENDED)),
+        )
+        return response
+
+
 class OrganizationListCreateView(generics.ListCreateAPIView):
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
+    pagination_class = OrganizationPagination
     permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
 
 
@@ -254,6 +268,19 @@ class UserDetailView(AdminOnlyMixin, generics.RetrieveUpdateAPIView):
 class CreateInvitationView(APIView):
     permission_classes = [IsAuthenticated, IsNEFIJJAdmin]
 
+    def get(self, request, pk):
+        organization = get_object_or_404(Organization, pk=pk)
+        current_organization = get_selected_organization(request)
+        if current_organization is None or current_organization.pk != organization.pk:
+            raise PermissionDenied("No tienes permiso para consultar invitaciones de esa organización.")
+        invitations = OrganizationInvitation.objects.filter(
+            organization=organization,
+            used_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).values("id", "created_at", "expires_at")
+        return Response(list(invitations))
+
     def post(self, request, pk):
         organization = get_object_or_404(Organization, pk=pk)
         current_organization = get_selected_organization(request)
@@ -261,6 +288,13 @@ class CreateInvitationView(APIView):
             raise PermissionDenied("No tienes permiso para invitar usuarios a esa organización.")
         if not organization.is_active:
             raise PermissionDenied("No se pueden emitir invitaciones para una organización suspendida.")
+        if not Location.objects.filter(
+            organization=organization,
+            is_active=True,
+        ).exists():
+            raise ValidationError(
+                {"invitation": "La organización debe tener al menos una sede activa para invitar usuarios."}
+            )
 
         raw_token = secrets.token_urlsafe(32)
         invitation = OrganizationInvitation.objects.create(
@@ -300,6 +334,41 @@ class RevokeInvitationView(APIView):
                 invitation.revoked_at = timezone.now()
                 invitation.save(update_fields=["revoked_at"])
         return Response(status=204)
+
+
+class PreviewInvitationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        code = request.data.get("code")
+        if not isinstance(code, str) or not code:
+            raise ValidationError({"code": "El código de invitación es obligatorio."})
+
+        token_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+        invitation = OrganizationInvitation.objects.select_related("organization").filter(
+            token_hash=token_hash,
+        ).first()
+        now = timezone.now()
+        if (
+            invitation is None
+            or invitation.revoked_at is not None
+            or invitation.used_at is not None
+            or invitation.expires_at <= now
+            or not invitation.organization.is_active
+        ):
+            raise ValidationError({"code": "La invitación no es válida o ya expiró."})
+
+        locations = Location.objects.filter(
+            organization=invitation.organization,
+            is_active=True,
+        ).values("id", "name")
+        return Response(
+            {
+                "organization_id": invitation.organization_id,
+                "organization_name": invitation.organization.name,
+                "locations": list(locations),
+            }
+        )
 
 
 class JoinOrganizationView(APIView):

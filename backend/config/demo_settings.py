@@ -1,8 +1,10 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 from .test_settings import *
 
+load_dotenv(BASE_DIR / ".env")
 
 demo_database_path = Path(
     os.getenv("NEFIJJ_DEMO_DB_PATH", BASE_DIR / "nefijj-demo.sqlite3"),
@@ -16,15 +18,24 @@ DATABASES = {
 }
 
 DEBUG = True
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    "[::1]",
-    *[
-        host.strip()
-        for host in os.getenv("NEFIJJ_DEMO_ALLOWED_HOSTS", "").split(",")
-        if host.strip()
-    ],
-]
+ALLOWED_HOSTS = list(
+    dict.fromkeys(
+        [
+            "localhost",
+            "127.0.0.1",
+            "[::1]",
+            *[
+                host.strip()
+                for host in os.getenv("NEFIJJ_DEMO_ALLOWED_HOSTS", "").split(",")
+                if host.strip()
+            ],
+            *[
+                host.strip()
+                for host in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",")
+                if host.strip()
+            ],
+        ]
+    )
+)
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.PBKDF2PasswordHasher"]
 NEFIJJ_DEMO_MODE = True

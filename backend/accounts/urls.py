@@ -10,6 +10,7 @@ from .views import (
     MyOrganizationsView,
     OrganizationListCreateView,
     OrganizationStatusView,
+    PreviewInvitationView,
     RevokeInvitationView,
     UserDetailView,
     UserListCreateView,
@@ -30,6 +31,11 @@ urlpatterns = [
         "organizations/<int:pk>/invitations/",
         CreateInvitationView.as_view(),
         name="organization-invitations",
+    ),
+    path(
+        "memberships/invitations/preview/",
+        PreviewInvitationView.as_view(),
+        name="invitation-preview",
     ),
     path(
         "organizations/<int:pk>/invitations/<int:invitation_pk>/revoke/",

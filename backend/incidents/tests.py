@@ -3,19 +3,31 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
+from urllib.error import URLError
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.urls import Resolver404, resolve, reverse
 from django.test import TransactionTestCase, override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APITestCase
 
 from accounts.models import Location, Organization, OrganizationMembership
-from .models import Category, EmergencyProtocol, Incident, IncidentEvent
+from .models import (
+    Category,
+    EmergencyAlert,
+    EmergencyAlertDelivery,
+    EmergencyProtocol,
+    Incident,
+    IncidentEvent,
+    PushDevice,
+)
 from .serializers import IncidentSerializer
 
 create_missing_legacy_tables = import_module(
@@ -276,6 +288,13 @@ class IncidentApiTests(APITestCase):
                     reverse("incident-evidence", args=[incident.pk]),
                     response.data["evidence_image"],
                 )
+                list_response = self.client.get(reverse("incident-list"))
+                self.assertEqual(list_response.status_code, 200, list_response.data)
+                self.assertEqual(list_response.data["count"], 1)
+                self.assertIn(
+                    reverse("incident-evidence", args=[incident.pk]),
+                    list_response.data["results"][0]["evidence_image"],
+                )
                 self.assertEqual(
                     incident.events.get().event_type,
                     IncidentEvent.EventType.CREATED,
@@ -358,6 +377,69 @@ class IncidentApiTests(APITestCase):
         )
         self.assertEqual(foreign_update_response.status_code, 404)
         self.assertEqual(self.foreign_category.name, "Redes")
+
+    def test_category_names_are_unique_per_organization(self):
+        self.client.force_authenticate(self.admin)
+
+        duplicate_create_response = self.client.post(
+            reverse("category-list"),
+            {"name": "redes", "description": "Nombre duplicado"},
+            format="json",
+        )
+        category = Category.objects.create(
+            organization=self.organization,
+            name="Aseo",
+        )
+        duplicate_update_response = self.client.patch(
+            reverse("category-detail", args=[category.pk]),
+            {"name": "REDES"},
+            format="json",
+        )
+
+        self.assertEqual(duplicate_create_response.status_code, 400)
+        self.assertIn("name", duplicate_create_response.data)
+        self.assertEqual(duplicate_update_response.status_code, 400)
+        category.refresh_from_db()
+        self.assertEqual(category.name, "Aseo")
+        self.assertTrue(
+            Category.objects.filter(
+                organization=self.other_organization,
+                name="Redes",
+            ).exists()
+        )
+
+    def test_inactive_categories_are_hidden_from_users_and_rejected_for_reports(self):
+        inactive_category = Category.objects.create(
+            organization=self.organization,
+            name="Categoría inactiva",
+            is_active=False,
+        )
+
+        self.client.force_authenticate(self.admin)
+        admin_list_response = self.client.get(reverse("category-list"))
+        self.assertIn(
+            inactive_category.pk,
+            {item["id"] for item in admin_list_response.data["results"]},
+        )
+
+        self.client.force_authenticate(self.student_a)
+        user_list_response = self.client.get(reverse("category-list"))
+        report_response = self.client.post(
+            reverse("incident-list"),
+            {
+                "title": "Reporte con categoría inactiva",
+                "description": "No debe aceptarse.",
+                "category_id": inactive_category.pk,
+            },
+            format="json",
+        )
+
+        self.assertNotIn(
+            inactive_category.pk,
+            {item["id"] for item in user_list_response.data["results"]},
+        )
+        self.assertEqual(report_response.status_code, 400)
+        self.assertEqual(Incident.objects.count(), 0)
 
     def test_non_admin_cannot_manage_categories(self):
         self.client.force_authenticate(self.student_a)
@@ -559,6 +641,57 @@ class IncidentApiTests(APITestCase):
             [incident_b.pk],
         )
 
+    def test_admin_can_filter_incidents_by_priority_and_category(self):
+        urgent = self.create_incident()
+        urgent.priority = Incident.Priority.CRITICAL
+        urgent.save(update_fields=["priority"])
+        other_category = Category.objects.create(
+            organization=self.organization,
+            name="Infraestructura",
+        )
+        priority_only = self.create_incident(reporter=self.student_b)
+        category_only = self.create_incident()
+        category_only.category = other_category
+        category_only.priority = Incident.Priority.CRITICAL
+        category_only.save(update_fields=["category", "priority"])
+        self.client.force_authenticate(self.admin)
+
+        filtered_response = self.client.get(
+            reverse("incident-list"),
+            {
+                "priority": Incident.Priority.CRITICAL,
+                "category": self.category.pk,
+            },
+        )
+        priority_response = self.client.get(
+            reverse("incident-list"),
+            {"priority": Incident.Priority.CRITICAL},
+        )
+        category_response = self.client.get(
+            reverse("incident-list"),
+            {"category": self.category.pk},
+        )
+        foreign_category_response = self.client.get(
+            reverse("incident-list"),
+            {"category": self.foreign_category.pk},
+        )
+
+        self.assertEqual(filtered_response.status_code, 200)
+        self.assertEqual(
+            [item["id"] for item in filtered_response.data["results"]],
+            [urgent.pk],
+        )
+        self.assertEqual(
+            {item["id"] for item in priority_response.data["results"]},
+            {urgent.pk, category_only.pk},
+        )
+        self.assertEqual(
+            {item["id"] for item in category_response.data["results"]},
+            {urgent.pk, priority_only.pk},
+        )
+        self.assertEqual(foreign_category_response.status_code, 200)
+        self.assertEqual(foreign_category_response.data["count"], 0)
+
     def test_organization_admin_cannot_access_another_organizations_resources(self):
         foreign_incident = Incident.objects.create(
             title="Incidencia externa",
@@ -649,3 +782,342 @@ class IncidentApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+
+class EmergencyAlertApiTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.organization = Organization.objects.create(
+            name="Organización de alertas",
+            slug="alert-test",
+        )
+        self.foreign_organization = Organization.objects.create(
+            name="Organización ajena",
+            slug="alert-foreign-test",
+        )
+        self.location = Location.objects.create(
+            organization=self.organization,
+            name="Sede de alertas",
+            code="ALERT",
+        )
+        self.foreign_location = Location.objects.create(
+            organization=self.foreign_organization,
+            name="Sede ajena",
+            code="FOREIGN",
+        )
+        self.admin = user_model.objects.create_user(
+            username="alert_admin",
+            email="alert_admin@example.test",
+            password="test-password",
+            role=user_model.Role.ADMIN,
+        )
+        self.member = user_model.objects.create_user(
+            username="alert_member",
+            email="alert_member@example.test",
+            password="test-password",
+            role=user_model.Role.STUDENT,
+            location=self.location,
+        )
+        self.foreign_admin = user_model.objects.create_user(
+            username="foreign_alert_admin",
+            email="foreign_alert_admin@example.test",
+            password="test-password",
+            role=user_model.Role.ADMIN,
+        )
+        self.foreign_member = user_model.objects.create_user(
+            username="foreign_alert_member",
+            email="foreign_alert_member@example.test",
+            password="test-password",
+            role=user_model.Role.STUDENT,
+            location=self.foreign_location,
+        )
+        for organization, user, location, role in (
+            (
+                self.organization,
+                self.admin,
+                None,
+                OrganizationMembership.Role.ADMIN,
+            ),
+            (
+                self.organization,
+                self.member,
+                self.location,
+                OrganizationMembership.Role.USER,
+            ),
+            (
+                self.foreign_organization,
+                self.foreign_admin,
+                None,
+                OrganizationMembership.Role.ADMIN,
+            ),
+            (
+                self.foreign_organization,
+                self.foreign_member,
+                self.foreign_location,
+                OrganizationMembership.Role.USER,
+            ),
+        ):
+            OrganizationMembership.objects.create(
+                organization=organization,
+                user=user,
+                location=location,
+                role=role,
+            )
+        self.admin_device = PushDevice.objects.create(
+            user=self.admin,
+            expo_push_token="ExponentPushToken[alert-admin]",
+            platform=PushDevice.Platform.ANDROID,
+        )
+        self.member_device = PushDevice.objects.create(
+            user=self.member,
+            expo_push_token="ExponentPushToken[alert-member]",
+            platform=PushDevice.Platform.IOS,
+        )
+        self.foreign_device = PushDevice.objects.create(
+            user=self.foreign_member,
+            expo_push_token="ExponentPushToken[foreign-member]",
+            platform=PushDevice.Platform.ANDROID,
+        )
+
+    def test_only_organization_admin_can_issue_alerts_to_active_tenant_devices(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(
+            reverse("emergency-alert-list"),
+            {"title": "Evacuación", "message": "Diríjanse al punto seguro."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        alert = EmergencyAlert.objects.get()
+        self.assertEqual(alert.organization, self.organization)
+        self.assertEqual(
+            set(alert.deliveries.values_list("device_id", flat=True)),
+            {self.admin_device.pk, self.member_device.pk},
+        )
+        self.assertEqual(response.data["pending_deliveries"], 2)
+
+        self.client.force_authenticate(self.member)
+        denied_response = self.client.post(
+            reverse("emergency-alert-list"),
+            {"title": "No autorizada", "message": "Mensaje."},
+            format="json",
+        )
+
+        self.assertEqual(denied_response.status_code, 403)
+        self.assertEqual(EmergencyAlert.objects.count(), 1)
+
+    def test_cancel_stops_pending_alerts_and_queues_cancellation_once(self):
+        alert = EmergencyAlert.objects.create(
+            organization=self.organization,
+            title="Prueba",
+            message="Aviso.",
+            created_by=self.admin,
+        )
+        EmergencyAlertDelivery.objects.bulk_create(
+            [
+                EmergencyAlertDelivery(
+                    alert=alert,
+                    device=device,
+                    kind=EmergencyAlertDelivery.Kind.ALERT,
+                )
+                for device in (self.admin_device, self.member_device)
+            ]
+        )
+        self.client.force_authenticate(self.admin)
+
+        first_response = self.client.post(
+            reverse("emergency-alert-cancel", args=[alert.pk]),
+        )
+        repeated_response = self.client.post(
+            reverse("emergency-alert-cancel", args=[alert.pk]),
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(repeated_response.status_code, 200)
+        self.assertEqual(first_response.data["status"], EmergencyAlert.Status.CANCELLED)
+        self.assertEqual(
+            alert.deliveries.filter(
+                kind=EmergencyAlertDelivery.Kind.ALERT,
+                status=EmergencyAlertDelivery.Status.CANCELLED,
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            alert.deliveries.filter(
+                kind=EmergencyAlertDelivery.Kind.CANCELLATION,
+                status=EmergencyAlertDelivery.Status.PENDING,
+            ).count(),
+            2,
+        )
+
+    def test_alert_list_is_scoped_to_the_active_organization(self):
+        alert = EmergencyAlert.objects.create(
+            organization=self.foreign_organization,
+            title="Privada",
+            message="No debe verse.",
+            created_by=self.foreign_admin,
+        )
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(reverse("emergency-alert-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 0)
+        self.assertNotIn(alert.pk, {item["id"] for item in response.data["results"]})
+
+    def test_non_admin_cannot_cancel_an_alert(self):
+        alert = EmergencyAlert.objects.create(
+            organization=self.organization,
+            title="Activa",
+            message="Aviso.",
+            created_by=self.admin,
+        )
+        self.client.force_authenticate(self.member)
+
+        response = self.client.post(
+            reverse("emergency-alert-cancel", args=[alert.pk]),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, EmergencyAlert.Status.ACTIVE)
+        self.assertEqual(alert.deliveries.count(), 0)
+
+    def test_push_device_token_cannot_be_claimed_by_another_account(self):
+        self.client.force_authenticate(self.member)
+
+        response = self.client.post(
+            reverse("push-device-register"),
+            {
+                "expo_push_token": self.admin_device.expo_push_token,
+                "platform": PushDevice.Platform.ANDROID,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403, response.data)
+        self.admin_device.refresh_from_db()
+        self.assertEqual(self.admin_device.user, self.admin)
+
+    def test_device_owner_can_disable_push_registration(self):
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.delete(
+            reverse("push-device-detail", args=[self.admin_device.pk]),
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.admin_device.refresh_from_db()
+        self.assertFalse(self.admin_device.is_active)
+
+    def test_device_owner_can_refresh_existing_registration(self):
+        self.admin_device.is_active = False
+        self.admin_device.save(update_fields=["is_active"])
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.post(
+            reverse("push-device-register"),
+            {
+                "expo_push_token": self.admin_device.expo_push_token,
+                "platform": PushDevice.Platform.ANDROID,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.admin_device.refresh_from_db()
+        self.assertTrue(self.admin_device.is_active)
+        self.assertEqual(PushDevice.objects.count(), 3)
+
+
+class EmergencyAlertDeliveryCommandTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.organization = Organization.objects.create(
+            name="Servicio push",
+            slug="push-command-test",
+        )
+        self.admin = user_model.objects.create_user(
+            username="push_admin",
+            email="push_admin@example.test",
+            password="test-password",
+            role=user_model.Role.ADMIN,
+        )
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        alert = EmergencyAlert.objects.create(
+            organization=self.organization,
+            title="Prueba push",
+            message="Mensaje de prueba.",
+            created_by=self.admin,
+        )
+        device = PushDevice.objects.create(
+            user=self.admin,
+            expo_push_token="ExponentPushToken[worker]",
+            platform=PushDevice.Platform.ANDROID,
+        )
+        self.delivery = EmergencyAlertDelivery.objects.create(
+            alert=alert,
+            device=device,
+            kind=EmergencyAlertDelivery.Kind.ALERT,
+        )
+
+    @patch("incidents.management.commands.send_emergency_alerts.urlopen")
+    def test_worker_accepts_push_without_claiming_device_delivery(self, mock_urlopen):
+        response = mock_urlopen.return_value.__enter__.return_value
+        response.read.return_value = b'{"data":[{"status":"ok","id":"ticket"}]}'
+
+        call_command("send_emergency_alerts")
+
+        self.delivery.refresh_from_db()
+        self.assertEqual(self.delivery.status, EmergencyAlertDelivery.Status.ACCEPTED)
+        self.assertEqual(self.delivery.attempts, 1)
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+    @patch(
+        "incidents.management.commands.send_emergency_alerts.urlopen",
+        side_effect=URLError("servicio fuera de línea"),
+    )
+    def test_worker_stops_after_three_attempts(self, mock_urlopen):
+        for attempt in range(3):
+            self.delivery.next_attempt_at = timezone.now()
+            self.delivery.save(update_fields=["next_attempt_at"])
+            call_command("send_emergency_alerts")
+            self.delivery.refresh_from_db()
+            if attempt < 2:
+                self.assertEqual(
+                    self.delivery.status,
+                    EmergencyAlertDelivery.Status.PENDING,
+                )
+
+        self.assertEqual(self.delivery.status, EmergencyAlertDelivery.Status.FAILED)
+        self.assertEqual(self.delivery.attempts, 3)
+        self.assertEqual(mock_urlopen.call_count, 3)
+
+    @patch("incidents.management.commands.send_emergency_alerts.urlopen")
+    def test_worker_surfaces_receipt_failures_and_disables_invalid_device(self, mock_urlopen):
+        self.delivery.status = EmergencyAlertDelivery.Status.ACCEPTED
+        self.delivery.provider_ticket_id = "ticket-123"
+        self.delivery.receipt_due_at = timezone.now()
+        self.delivery.save(
+            update_fields=["status", "provider_ticket_id", "receipt_due_at"]
+        )
+        response = mock_urlopen.return_value.__enter__.return_value
+        response.read.return_value = (
+            b'{"data":{"ticket-123":{"status":"error","message":"Token inv\\u00e1lido",'
+            b'"details":{"error":"DeviceNotRegistered"}}}}'
+        )
+
+        call_command("send_emergency_alerts")
+
+        self.delivery.refresh_from_db()
+        self.delivery.device.refresh_from_db()
+        self.assertEqual(self.delivery.status, EmergencyAlertDelivery.Status.FAILED)
+        self.assertIsNotNone(self.delivery.receipt_checked_at)
+        self.assertFalse(self.delivery.device.is_active)
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(reverse("emergency-alert-list"))
+        self.assertIn("DeviceNotRegistered", response.data["results"][0]["delivery_errors"][0])

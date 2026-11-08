@@ -5,6 +5,7 @@ from django.core.files.storage import default_storage
 from django.db import transaction
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, serializers
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -22,12 +23,23 @@ from accounts.tenancy import (
     scope_to_organization,
 )
 
-from .models import Category, EmergencyProtocol, Incident, IncidentEvent
+from .models import (
+    Category,
+    EmergencyAlert,
+    EmergencyAlertDelivery,
+    EmergencyProtocol,
+    Incident,
+    IncidentEvent,
+    PushDevice,
+)
 from .serializers import (
     CategorySerializer,
+    EmergencyAlertCreateSerializer,
+    EmergencyAlertSerializer,
     EmergencyProtocolSerializer,
     IncidentEventSerializer,
     IncidentSerializer,
+    PushDeviceSerializer,
 )
 
 
@@ -394,3 +406,158 @@ class EmergencyProtocolDetailView(generics.RetrieveUpdateAPIView):
         if location.organization_id != organization.pk:
             raise ValidationError({"location_id": "La sede debe pertenecer a la organización activa."})
         serializer.save()
+
+
+class PushDeviceRegistrationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = PushDeviceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            device, _ = PushDevice.objects.get_or_create(
+                expo_push_token=serializer.validated_data["expo_push_token"],
+                defaults={
+                    "user": request.user,
+                    "platform": serializer.validated_data["platform"],
+                    "is_active": True,
+                },
+            )
+            if device.user_id != request.user.pk:
+                raise PermissionDenied(
+                    "Este dispositivo está vinculado a otra cuenta. Cierra su sesión antes de registrarlo."
+                )
+            device.platform = serializer.validated_data["platform"]
+            device.is_active = True
+            device.save(update_fields=["platform", "is_active", "updated_at"])
+        return Response(PushDeviceSerializer(device).data)
+
+    def delete(self, request, pk):
+        device = get_object_or_404(
+            PushDevice.objects.filter(user=request.user),
+            pk=pk,
+        )
+        device.is_active = False
+        device.save(update_fields=["is_active", "updated_at"])
+        return Response(status=204)
+
+
+class EmergencyAlertListCreateView(generics.ListCreateAPIView):
+    serializer_class = EmergencyAlertSerializer
+
+    def get_queryset(self):
+        if self.request.user.is_superuser:
+            raise PermissionDenied(
+                "Selecciona una cuenta administradora de organización para operar alertas."
+            )
+        get_active_membership(self.request)
+        organization = require_active_organization(self.request)
+        return EmergencyAlert.objects.filter(
+            organization=organization,
+        ).select_related("created_by", "cancelled_by")
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return EmergencyAlertCreateSerializer
+        return EmergencyAlertSerializer
+
+    def perform_create(self, serializer):
+        if self.request.user.is_superuser:
+            raise PermissionDenied("Solo un administrador de organización puede emitir alertas.")
+        membership = get_active_membership(self.request)
+        if membership.role != OrganizationMembership.Role.ADMIN:
+            raise PermissionDenied("Solo un administrador de organización puede emitir alertas.")
+        organization = require_active_organization(self.request)
+
+        with transaction.atomic():
+            alert = serializer.save(
+                organization=organization,
+                created_by=self.request.user,
+            )
+            self.created_alert = alert
+            member_user_ids = OrganizationMembership.objects.filter(
+                organization=organization,
+                is_active=True,
+                user__is_active=True,
+            ).values("user_id")
+            devices = PushDevice.objects.filter(
+                user_id__in=member_user_ids,
+                is_active=True,
+            )
+            EmergencyAlertDelivery.objects.bulk_create(
+                [
+                    EmergencyAlertDelivery(
+                        alert=alert,
+                        device=device,
+                        kind=EmergencyAlertDelivery.Kind.ALERT,
+                    )
+                    for device in devices
+                ]
+            )
+
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        alert = self.get_queryset().get(pk=self.created_alert.pk)
+        return Response(
+            EmergencyAlertSerializer(
+                alert,
+                context={"request": request},
+            ).data,
+            status=response.status_code,
+        )
+
+
+class EmergencyAlertCancelView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if request.user.is_superuser:
+            raise PermissionDenied("Solo un administrador de organización puede cancelar alertas.")
+        membership = get_active_membership(request)
+        if membership.role != OrganizationMembership.Role.ADMIN:
+            raise PermissionDenied("Solo un administrador de organización puede cancelar alertas.")
+        organization = require_active_organization(request)
+
+        with transaction.atomic():
+            alert = get_object_or_404(
+                EmergencyAlert.objects.select_for_update().filter(
+                    organization=organization,
+                ),
+                pk=pk,
+            )
+            if alert.status == EmergencyAlert.Status.ACTIVE:
+                alert.status = EmergencyAlert.Status.CANCELLED
+                alert.cancelled_by = request.user
+                alert.cancelled_at = timezone.now()
+                alert.save(update_fields=["status", "cancelled_by", "cancelled_at"])
+                alert.deliveries.filter(
+                    kind=EmergencyAlertDelivery.Kind.ALERT,
+                    status=EmergencyAlertDelivery.Status.PENDING,
+                ).update(
+                    status=EmergencyAlertDelivery.Status.CANCELLED,
+                    completed_at=timezone.now(),
+                    last_error="La alerta se canceló antes del envío.",
+                )
+                member_user_ids = OrganizationMembership.objects.filter(
+                    organization=organization,
+                    is_active=True,
+                    user__is_active=True,
+                ).values("user_id")
+                devices = PushDevice.objects.filter(
+                    user_id__in=member_user_ids,
+                    is_active=True,
+                )
+                EmergencyAlertDelivery.objects.bulk_create(
+                    [
+                        EmergencyAlertDelivery(
+                            alert=alert,
+                            device=device,
+                            kind=EmergencyAlertDelivery.Kind.CANCELLATION,
+                        )
+                        for device in devices
+                    ]
+                )
+
+        return Response(
+            EmergencyAlertSerializer(alert, context={"request": request}).data
+        )

@@ -10,6 +10,7 @@ import {
 
 import { getApiErrorMessage } from "../api/errors";
 import { useAuth } from "../auth/AuthContext";
+import ActionButton from "../components/ActionButton";
 
 export default function OrganizationSelectScreen({ navigation }) {
   const { user, selectOrganization, logout } = useAuth();
@@ -90,6 +91,10 @@ export default function OrganizationSelectScreen({ navigation }) {
           invitación al administrador de tu organización.
         </Text>
       ) : null}
+      <ActionButton
+        onPress={() => navigation.navigate("JoinOrganization")}
+        title="Ingresar código o escanear invitación"
+      />
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <Button onPress={handleLogout} title="Cerrar sesión" />
     </ScrollView>

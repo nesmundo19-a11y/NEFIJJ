@@ -10,15 +10,19 @@ import ChangePasswordScreen from "../screens/ChangePasswordScreen";
 import CreateIncidentScreen from "../screens/CreateIncidentScreen";
 import CreateUserScreen from "../screens/CreateUserScreen";
 import EmergenciesScreen from "../screens/EmergenciesScreen";
+import EmergencyAlertManagementScreen from "../screens/EmergencyAlertManagementScreen";
 import IncidentsScreen from "../screens/IncidentsScreen";
+import JoinOrganizationScreen from "../screens/JoinOrganizationScreen";
 import LoginScreen from "../screens/LoginScreen";
+import InvitationManagementScreen from "../screens/InvitationManagementScreen";
 import OrganizationManagementScreen from "../screens/OrganizationManagementScreen";
 import OrganizationSelectScreen from "../screens/OrganizationSelectScreen";
+import UserHomeScreen from "../screens/UserHomeScreen";
 
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
-  const { user, loading, initializationError, retryRestore } = useAuth();
+  const { user, logout, loading, initializationError, retryRestore } = useAuth();
 
   if (loading) {
     return (
@@ -63,6 +67,8 @@ export default function AppNavigator() {
                       ? OrganizationSelectScreen
                       : user.role === "organization_admin"
                         ? AdminIncidentsScreen
+                        : user.role === "user"
+                        ? UserHomeScreen
                         : IncidentsScreen
                 }
                 options={({ navigation }) => ({
@@ -73,7 +79,9 @@ export default function AppNavigator() {
                         ? "Organización"
                         : user.role === "organization_admin"
                           ? "Administrar incidencias"
-                          : "Mis incidencias",
+                          : user.role === "user"
+                            ? "Inicio"
+                            : "Mis incidencias",
                   headerRight:
                     () => (
                       <View style={styles.headerActions}>
@@ -89,6 +97,11 @@ export default function AppNavigator() {
                         <Button
                           onPress={() => navigation.navigate("AccountSettings")}
                           title="Cuenta"
+                        />
+                        <Button
+                          color="#a42323"
+                          onPress={() => logout()}
+                          title="Salir"
                         />
                       </View>
                     ),
@@ -112,6 +125,13 @@ export default function AppNavigator() {
                   options={{ title: "Reportar incidencia" }}
                 />
               ) : null}
+              {user.role === "user" ? (
+                <Stack.Screen
+                  name="MyReports"
+                  component={IncidentsScreen}
+                  options={{ title: "Mis reportes" }}
+                />
+              ) : null}
               {user.role !== "superadmin" ? (
                 <Stack.Screen
                   name="Emergencies"
@@ -131,6 +151,27 @@ export default function AppNavigator() {
                   name="Categories"
                   component={CategoryManagementScreen}
                   options={{ title: "Administrar categorías" }}
+                />
+              ) : null}
+              {user.role === "organization_admin" || user.role === "superadmin" ? (
+                <Stack.Screen
+                  name="ManageInvitations"
+                  component={InvitationManagementScreen}
+                  options={{ title: "Invitaciones de organización" }}
+                />
+              ) : null}
+              {user.role === "organization_admin" ? (
+                <Stack.Screen
+                  name="ManageEmergencyAlerts"
+                  component={EmergencyAlertManagementScreen}
+                  options={{ title: "Alertas de emergencia" }}
+                />
+              ) : null}
+              {user.role !== "superadmin" ? (
+                <Stack.Screen
+                  name="JoinOrganization"
+                  component={JoinOrganizationScreen}
+                  options={{ title: "Unirse a una organización" }}
                 />
               ) : null}
               <Stack.Screen

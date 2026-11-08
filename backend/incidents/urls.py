@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     CategoryDetailView,
     CategoryListCreateView,
+    EmergencyAlertCancelView,
+    EmergencyAlertListCreateView,
     EmergencyProtocolDetailView,
     EmergencyProtocolListCreateView,
     IncidentAssignView,
@@ -11,6 +13,7 @@ from .views import (
     IncidentEventsView,
     IncidentListCreateView,
     IncidentStatusView,
+    PushDeviceRegistrationView,
 )
 
 urlpatterns = [
@@ -24,4 +27,16 @@ urlpatterns = [
     path("categories/<int:pk>/", CategoryDetailView.as_view(), name="category-detail"),
     path("emergencies/", EmergencyProtocolListCreateView.as_view(), name="emergency-list"),
     path("emergencies/<int:pk>/", EmergencyProtocolDetailView.as_view(), name="emergency-detail"),
+    path("emergency-alerts/", EmergencyAlertListCreateView.as_view(), name="emergency-alert-list"),
+    path(
+        "emergency-alerts/<int:pk>/cancel/",
+        EmergencyAlertCancelView.as_view(),
+        name="emergency-alert-cancel",
+    ),
+    path("push-devices/", PushDeviceRegistrationView.as_view(), name="push-device-register"),
+    path(
+        "push-devices/<int:pk>/",
+        PushDeviceRegistrationView.as_view(),
+        name="push-device-detail",
+    ),
 ]

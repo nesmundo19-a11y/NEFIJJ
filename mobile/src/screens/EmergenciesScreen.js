@@ -1,21 +1,37 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 
 import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
+import ActionButton from "../components/ActionButton";
+import { registerPushDevice } from "../notifications/push";
 
 export default function EmergenciesScreen() {
   const [protocols, setProtocols] = useState([]);
+  const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState("");
   const [error, setError] = useState("");
 
   const loadProtocols = useCallback(async () => {
     setError("");
     try {
-      const { data } = await api.get("/emergencies/");
-      setProtocols(data.results);
+      const [protocolResponse, alertResponse] = await Promise.all([
+        api.get("/emergencies/"),
+        api.get("/emergency-alerts/"),
+      ]);
+      setProtocols(protocolResponse.data.results);
+      setAlerts(alertResponse.data.results);
     } catch (requestError) {
       setError(getApiErrorMessage(requestError));
     } finally {
@@ -30,9 +46,32 @@ export default function EmergenciesScreen() {
     }, [loadProtocols]),
   );
 
+  async function enableNotifications() {
+    setRegistering(true);
+    setNotificationMessage("");
+    setError("");
+    try {
+      const result = await registerPushDevice();
+      setNotificationMessage(
+        result.status === "registered"
+          ? "Este dispositivo quedó registrado para recibir alertas."
+          : "No se activaron las notificaciones. Puedes habilitarlas en los ajustes del dispositivo.",
+      );
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError));
+    } finally {
+      setRegistering(false);
+    }
+  }
+
   return (
     <View style={styles.page}>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+      {notificationMessage ? (
+        <Text accessibilityRole="status" style={styles.notificationMessage}>
+          {notificationMessage}
+        </Text>
+      ) : null}
       {loading ? (
         <ActivityIndicator color="#0b6b63" size="large" style={styles.loading} />
       ) : (
@@ -41,12 +80,40 @@ export default function EmergenciesScreen() {
           data={protocols}
           keyExtractor={(item) => String(item.id)}
           ListHeaderComponent={
-            <View style={styles.notice}>
-              <Text style={styles.noticeTitle}>Información preventiva</Text>
-              <Text style={styles.noticeText}>
-                Estos protocolos son información de referencia, no alertas en tiempo real.
-                Ante un peligro inmediato, sigue las indicaciones de los servicios oficiales.
-              </Text>
+            <View>
+              <View style={styles.notice}>
+                <Text style={styles.noticeTitle}>Alertas de emergencia</Text>
+                <Text style={styles.noticeText}>
+                  Las notificaciones dependen de internet y del servicio push; no se garantiza
+                  su entrega. Ante un peligro inmediato, sigue las indicaciones de los
+                  servicios oficiales.
+                </Text>
+                <ActionButton
+                  compact
+                  disabled={registering}
+                  onPress={enableNotifications}
+                  title={registering ? "Activando…" : "Activar notificaciones en este dispositivo"}
+                  variant="secondary"
+                />
+              </View>
+              <Text style={styles.sectionTitle}>Alertas recibidas</Text>
+              {alerts.map((alert) => (
+                <View key={alert.id} style={styles.card}>
+                  <Text style={styles.title}>{alert.title}</Text>
+                  <Text style={styles.content}>{alert.message}</Text>
+                  <Text style={styles.meta}>
+                    {alert.status === "cancelled" ? "Cancelada" : "Activa"} ·{" "}
+                    {new Date(alert.created_at).toLocaleString()}
+                  </Text>
+                </View>
+              ))}
+              <View style={styles.notice}>
+                <Text style={styles.noticeTitle}>Protocolos preventivos</Text>
+                <Text style={styles.noticeText}>
+                  Estos protocolos son información de referencia, no alertas en tiempo real.
+                  Ante un peligro inmediato, sigue las indicaciones de los servicios oficiales.
+                </Text>
+              </View>
             </View>
           }
           ListEmptyComponent={
@@ -101,6 +168,12 @@ const styles = StyleSheet.create({
     color: "#684800",
     lineHeight: 20,
   },
+  sectionTitle: {
+    marginBottom: 10,
+    color: "#172321",
+    fontSize: 17,
+    fontWeight: "700",
+  },
   emptyList: {
     flexGrow: 1,
     alignItems: "center",
@@ -129,6 +202,15 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: "#0b6b63",
     fontWeight: "700",
+  },
+  meta: {
+    marginTop: 10,
+    color: "#52615e",
+    fontSize: 12,
+  },
+  notificationMessage: {
+    marginVertical: 8,
+    color: "#0b6b63",
   },
   loading: {
     marginTop: 32,

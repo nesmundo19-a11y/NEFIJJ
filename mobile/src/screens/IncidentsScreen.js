@@ -1,9 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Button,
   FlatList,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -14,6 +12,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 import { useAuth } from "../auth/AuthContext";
+import ActionButton from "../components/ActionButton";
 import EvidenceImage from "../components/EvidenceImage";
 import { IncidentBadges } from "../components/IncidentBadges";
 
@@ -22,8 +21,9 @@ const NEXT_STATUS = {
   en_proceso: "resuelta",
 };
 
-export default function IncidentsScreen({ navigation }) {
+export default function IncidentsScreen({ navigation, route }) {
   const { user, logout } = useAuth();
+  const isMyReports = route.name === "MyReports";
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -86,17 +86,15 @@ export default function IncidentsScreen({ navigation }) {
         <IncidentBadges priority={item.priority} status={item.status} />
         <Text style={styles.description}>{item.description}</Text>
         {item.evidence_image ? <EvidenceImage uri={item.evidence_image} /> : null}
-        <Text style={styles.meta}>{new Date(item.created_at).toLocaleDateString()}</Text>
+        <Text style={styles.meta}>
+          Reportado: {new Date(item.created_at).toLocaleString()}
+        </Text>
         {canUpdate ? (
-          <Pressable
-            accessibilityRole="button"
+          <ActionButton
             onPress={() => changeStatus(item)}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.secondaryButtonText}>
-              {item.status === "pendiente" ? "Iniciar atención" : "Marcar resuelta"}
-            </Text>
-          </Pressable>
+            title={item.status === "pendiente" ? "Iniciar atención" : "Marcar resuelta"}
+            variant="primary"
+          />
         ) : null}
       </View>
     );
@@ -106,29 +104,37 @@ export default function IncidentsScreen({ navigation }) {
     <View style={styles.page}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.welcome}>Hola, {user.username}</Text>
-          <Text style={styles.role}>{user.role}</Text>
+          <Text style={styles.welcome}>{isMyReports ? "Mis reportes" : `Hola, ${user.username}`}</Text>
+          {!isMyReports ? <Text style={styles.role}>{user.role}</Text> : null}
         </View>
-        <Button onPress={handleLogout} title="Salir" />
+        <ActionButton
+          compact
+          fullWidth={false}
+          onPress={handleLogout}
+          title="Salir"
+          variant="quiet"
+        />
       </View>
-      <View style={styles.actions}>
-        {user.role === "user" ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => navigation.navigate("CreateIncident")}
-            style={styles.primaryButton}
-          >
-            <Text style={styles.primaryButtonText}>Reportar incidencia</Text>
-          </Pressable>
-        ) : null}
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => navigation.navigate("Emergencies")}
-          style={styles.secondaryButton}
-        >
-          <Text style={styles.secondaryButtonText}>Protocolos de emergencia</Text>
-        </Pressable>
-      </View>
+      {!isMyReports ? (
+        <View style={styles.actions}>
+          <ActionButton
+            onPress={() => navigation.navigate("JoinOrganization")}
+            title="Unirse a otra organización"
+            variant="quiet"
+          />
+          {user.role === "user" ? (
+            <ActionButton
+              onPress={() => navigation.navigate("CreateIncident")}
+              title="Reportar incidencia"
+            />
+          ) : null}
+          <ActionButton
+            onPress={() => navigation.navigate("Emergencies")}
+            title="Protocolos de emergencia"
+            variant="secondary"
+          />
+        </View>
+      ) : null}
       {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       {loading ? (
@@ -178,33 +184,8 @@ const styles = StyleSheet.create({
     textTransform: "capitalize",
   },
   actions: {
-    gap: 8,
+    gap: 10,
     marginBottom: 12,
-  },
-  primaryButton: {
-    minHeight: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-    backgroundColor: "#0b6b63",
-  },
-  primaryButtonText: {
-    color: "#ffffff",
-    fontWeight: "700",
-  },
-  secondaryButton: {
-    minHeight: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "#0b6b63",
-    borderRadius: 8,
-  },
-  secondaryButtonText: {
-    color: "#075b55",
-    fontWeight: "600",
   },
   list: {
     paddingBottom: 24,

@@ -382,6 +382,11 @@ class OrganizationApiTests(APITestCase):
     def test_only_superadmin_can_list_and_create_organizations(self):
         self.client.force_authenticate(self.admin)
         denied = self.client.get(reverse("organization-list"))
+        denied_status_update = self.client.patch(
+            reverse("organization-status", args=[self.organization.pk]),
+            {"status": Organization.Status.SUSPENDED},
+            format="json",
+        )
 
         self.client.force_authenticate(self.superadmin)
         allowed = self.client.get(reverse("organization-list"))
@@ -392,8 +397,49 @@ class OrganizationApiTests(APITestCase):
         )
 
         self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied_status_update.status_code, 403)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.status, Organization.Status.ACTIVE)
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(created.status_code, 201)
+
+    def test_superadmin_organization_list_includes_global_status_counts(self):
+        self.other_organization.status = Organization.Status.SUSPENDED
+        self.other_organization.save(update_fields=["status"])
+        self.client.force_authenticate(self.superadmin)
+
+        response = self.client.get(reverse("organization-list"))
+
+        self.assertEqual(response.status_code, 200)
+        expected_summary = {
+            "total": Organization.objects.count(),
+            "active": Organization.objects.filter(
+                status=Organization.Status.ACTIVE
+            ).count(),
+            "suspended": Organization.objects.filter(
+                status=Organization.Status.SUSPENDED
+            ).count(),
+        }
+        self.assertEqual(
+            response.data["summary"],
+            expected_summary,
+        )
+        self.assertEqual(response.data["count"], expected_summary["total"])
+
+        status_response = self.client.patch(
+            reverse("organization-status", args=[self.organization.pk]),
+            {"status": Organization.Status.SUSPENDED},
+            format="json",
+        )
+        refreshed_response = self.client.get(reverse("organization-list"))
+
+        self.assertEqual(status_response.status_code, 200)
+        expected_summary["active"] -= 1
+        expected_summary["suspended"] += 1
+        self.assertEqual(
+            refreshed_response.data["summary"],
+            expected_summary,
+        )
 
     def test_organization_admin_cannot_manage_foreign_users_or_locations(self):
         self.client.force_authenticate(self.admin)
@@ -453,6 +499,129 @@ class OrganizationApiTests(APITestCase):
         self.assertEqual(membership.location, self.other_location)
         invitation.refresh_from_db()
         self.assertEqual(invitation.used_by, self.member)
+
+    def test_invitation_preview_returns_active_locations_without_consuming_code(self):
+        inactive_location = Location.objects.create(
+            organization=self.other_organization,
+            name="Sede inactiva",
+            code="ORG-DEMO-OFF",
+            is_active=False,
+        )
+        self.client.force_authenticate(self.superadmin)
+        create_response = self.client.post(
+            reverse("organization-invitations", args=[self.other_organization.pk]),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+
+        self.client.force_authenticate(self.member)
+        preview_response = self.client.post(
+            reverse("invitation-preview"),
+            {"code": create_response.data["code"]},
+            format="json",
+        )
+        join_response = self.client.post(
+            reverse("membership-join"),
+            {"code": create_response.data["code"], "location_id": self.other_location.pk},
+            format="json",
+        )
+
+        self.assertEqual(create_response.status_code, 201)
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertEqual(
+            preview_response.data["locations"],
+            [{"id": self.other_location.pk, "name": self.other_location.name}],
+        )
+        self.assertNotIn(inactive_location.pk, [
+            location["id"] for location in preview_response.data["locations"]
+        ])
+        self.assertEqual(join_response.status_code, 201)
+
+    def test_invitation_preview_rejects_revoked_and_expired_codes(self):
+        self.client.force_authenticate(self.superadmin)
+        revoked = self.client.post(
+            reverse("organization-invitations", args=[self.other_organization.pk]),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+        expired = self.client.post(
+            reverse("organization-invitations", args=[self.other_organization.pk]),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+        self.client.post(
+            reverse(
+                "organization-invitation-revoke",
+                args=[self.other_organization.pk, revoked.data["id"]],
+            ),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+        OrganizationInvitation.objects.filter(pk=expired.data["id"]).update(
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        self.client.force_authenticate(self.member)
+        revoked_response = self.client.post(
+            reverse("invitation-preview"),
+            {"code": revoked.data["code"]},
+            format="json",
+        )
+        expired_response = self.client.post(
+            reverse("invitation-preview"),
+            {"code": expired.data["code"]},
+            format="json",
+        )
+
+        self.assertEqual(revoked_response.status_code, 400)
+        self.assertEqual(expired_response.status_code, 400)
+        self.assertEqual(revoked_response.data["code"], expired_response.data["code"])
+
+    def test_invitation_list_does_not_expose_codes_and_is_tenant_scoped(self):
+        self.client.force_authenticate(self.superadmin)
+        created = self.client.post(
+            reverse("organization-invitations", args=[self.other_organization.pk]),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+
+        listed = self.client.get(
+            reverse("organization-invitations", args=[self.other_organization.pk]),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(len(listed.data), 1)
+        self.assertEqual(listed.data[0]["id"], created.data["id"])
+        self.assertNotIn("code", listed.data[0])
+
+    def test_invitation_preview_requires_authentication(self):
+        self.client.force_authenticate(self.superadmin)
+        created = self.client.post(
+            reverse("organization-invitations", args=[self.other_organization.pk]),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+        self.client.force_authenticate(user=None)
+
+        response = self.client.post(
+            reverse("invitation-preview"),
+            {"code": created.data["code"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_invitation_creation_requires_an_active_location(self):
+        self.other_location.is_active = False
+        self.other_location.save(update_fields=["is_active"])
+        self.client.force_authenticate(self.superadmin)
+
+        response = self.client.post(
+            reverse("organization-invitations", args=[self.other_organization.pk]),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            OrganizationInvitation.objects.filter(
+                organization=self.other_organization,
+            ).exists()
+        )
 
     def test_revoked_invitation_cannot_be_used(self):
         self.client.force_authenticate(self.superadmin)

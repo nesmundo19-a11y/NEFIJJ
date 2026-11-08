@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Category(models.Model):
@@ -130,3 +131,101 @@ class EmergencyProtocol(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.location.code})"
+
+
+class PushDevice(models.Model):
+    class Platform(models.TextChoices):
+        ANDROID = "android", "Android"
+        IOS = "ios", "iOS"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="push_devices",
+    )
+    expo_push_token = models.CharField(max_length=255, unique=True)
+    platform = models.CharField(max_length=10, choices=Platform.choices)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+
+class EmergencyAlert(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Activa"
+        CANCELLED = "cancelled", "Cancelada"
+
+    organization = models.ForeignKey(
+        "accounts.Organization",
+        on_delete=models.PROTECT,
+        related_name="emergency_alerts",
+    )
+    title = models.CharField(max_length=150)
+    message = models.TextField(max_length=2000)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="issued_emergency_alerts",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cancelled_emergency_alerts",
+        null=True,
+        blank=True,
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["organization", "status", "created_at"])]
+
+
+class EmergencyAlertDelivery(models.Model):
+    class Kind(models.TextChoices):
+        ALERT = "alert", "Alerta"
+        CANCELLATION = "cancellation", "Cancelación"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        ACCEPTED = "accepted", "Aceptada por el servicio push"
+        FAILED = "failed", "Fallida"
+        CANCELLED = "cancelled", "Cancelada"
+
+    alert = models.ForeignKey(
+        EmergencyAlert,
+        on_delete=models.CASCADE,
+        related_name="deliveries",
+    )
+    device = models.ForeignKey(
+        PushDevice,
+        on_delete=models.PROTECT,
+        related_name="alert_deliveries",
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    last_error = models.CharField(max_length=255, blank=True)
+    provider_ticket_id = models.CharField(max_length=64, blank=True)
+    receipt_due_at = models.DateTimeField(null=True, blank=True)
+    receipt_checked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["alert", "device", "kind"],
+                name="unique_alert_device_delivery_kind",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["status", "next_attempt_at"]),
+        ]

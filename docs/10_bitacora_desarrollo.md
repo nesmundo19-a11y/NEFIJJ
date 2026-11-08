@@ -164,7 +164,7 @@ Solo `is_superuser` concede el alcance global de plataforma. La UI no sustituye 
 
 **Técnico y usuario final — React Native**
 - Implementado: navegación por rol, selector/cambio de tenant, envío de `X-Organization-ID`, lista de incidencias, protocolos y formulario de reporte existente.
-- Pendiente: interfaz de aceptación de invitación, cámara/QR, evidencia fotográfica/video, GPS, wizard de tres pasos y radicado.
+- Históricamente estaban pendientes la interfaz de aceptación de invitación y el QR; se implementaron en la Fase 3. También se implementó en Fase 4 el menú móvil de usuario e historial separado. Siguen fuera de alcance GPS y wizard de tres pasos; la validación en teléfono de QR, fotos y flujo de usuario permanece pendiente.
 
 ### 7.5 Secuencia y criterios de aceptación
 1. **Completado en código:** modelos, migraciones, endpoints, permisos organizacionales, pruebas de aislamiento y selector/navegación móvil inicial.
@@ -185,7 +185,7 @@ La auditoría inicial identificó una especificación repetida y mezclada con el
 | Paneles y QR | La app permite al superadmin crear/activar/suspender organizaciones; invitaciones existen en API, pero no en UI. | Mantener como pendientes métricas globales, QR y gestión móvil completa. |
 | Áreas y responsables | Hay categorías de incidencias y asignación manual de técnicos; no hay entidad de área ni enrutamiento automático. | Mantenerlo como fase futura: categoría describe el tipo de incidencia; el área selecciona el equipo/responsable. Definir su relación con sede, miembros activos y falta de responsable antes de implementar. |
 | Navegación móvil actual | `AppNavigator` diferencia superadmin, administrador organizacional, técnico y usuario; soporta selector de organización. | El bundle compila. La UX todavía requiere prueba manual en dispositivo y la UI de organización suspendida/invitaciones necesita validación. |
-| Reporte móvil | Existe un formulario simple; no hay wizard de tres pasos, cámara/video, GPS ni número de radicado. | No llamar implementado al reporte dinámico. Antes de construirlo, definir carga/almacenamiento de archivos, permisos, retención y privacidad de ubicación. |
+| Reporte móvil | Formulario con categorías dinámicas, evidencia fotográfica opcional, estados de envío/error y confirmación; inicio de usuario e historial separado implementados en Fase 4. No hay wizard de tres pasos, GPS ni número de radicado. | La autorización y el alcance permanecen en la API; falta validación manual en teléfono. No capturar ubicación hasta acordar consentimiento y privacidad. |
 | Analítica y notificaciones | No se encontraron gráficas de analítica ni entrega de notificaciones. | Conservarlas como requisitos futuros; especificar métricas, canales, consentimiento y operación antes de incorporarlas. |
 | Controles redundantes o inseguros | La propuesta sugería modificar directamente la base para asignar roles; esto puede eludir validaciones y auditoría. | No recomendar cambios directos en SQL. Aún falta una bitácora completa de cambios de organización/membresía y una revisión exhaustiva de todos los endpoints. |
 | Instalador Android | La exportación probada generó un bundle JS/estático, no un artefacto `.apk`. | Retirar la promesa de APK “100 % gratis”; un APK firmado requiere build y configuración Android. El servicio alojado puede tener límites/costos. |
@@ -302,3 +302,41 @@ Validaciones: 18 pruebas de `IncidentApiTests` aprobadas en SQLite y `manage.py 
 
 ### Fase pendiente: avisos informativos de sismos del SGC
 Se acordó avisar por push a todos los dispositivos registrados sobre sismos ya publicados por el SGC (no alerta temprana), sin acuse y solo con internet. Se mostrará el área indicada por la fuente, sin filtrado por sede. El usuario proporcionó la página principal del SGC, no un endpoint/feed verificable; no se inventará uno ni se emitirán avisos simulados. Push requiere development build, no Expo Go. Se autorizó generar modelos/migración, sin ejecutar ni aplicar cambios a MySQL. `EmergencyProtocol` continúa siendo contenido informativo estático. La integración queda pendiente hasta identificar y verificar la fuente oficial. Ver [02_requisitos.md](./02_requisitos.md), [03_arquitectura.md](./03_arquitectura.md) y CP17 de [09_pruebas.md](./09_pruebas.md).
+
+### Fase 3 - Invitaciones y vinculación QR (7 de noviembre de 2026)
+Se implementó el ciclo móvil de invitaciones reutilizando los códigos aleatorios ya existentes, de un solo uso, almacenados como hash y con vencimiento de siete días hábiles. La pantalla administrativa permite generar y mostrar el QR, ver metadatos de invitaciones pendientes y revocarlas; el superadministrador puede emitirlas desde una organización activa. El usuario debe iniciar sesión con una cuenta existente, escanear o escribir el código, previsualizar la organización, elegir una sede activa y confirmar la vinculación. La sesión móvil vuelve a consultar sus membresías y activa el tenant recién unido. No hay registro público ni se añaden secretos persistentes o campos de QR.
+
+Se añadieron `POST /memberships/invitations/preview/` (autenticado, solo datos de organización/sedes activas, no consume el código) y `GET /organizations/{id}/invitations/` (solo metadatos, nunca secretos). La creación exige una sede activa. La app distingue el QR de invitación del QR de desarrollo de Expo Go.
+
+Validaciones de esta fase: 12 pruebas de `OrganizationApiTests` y 50 pruebas de la suite completa aprobadas en SQLite, incluidas previsualización, rechazo de invitaciones revocadas/expiradas, uso único y listado sin códigos; `manage.py check`, `expo install --check`, `expo-doctor` (20/20) y bundle Android aprobado. `makemigrations --check --dry-run` sigue reportando diferencias de opciones `Meta` ya conocidas; no se generó ningún archivo de migración. Pendiente escanear/aceptar una invitación en un teléfono real; la exportación no prueba el permiso de cámara ni la experiencia física. No se conectó ni modificó MySQL durante esta implementación.
+
+### Fase 4 - Flujo móvil de empleado/usuario (7 de noviembre de 2026)
+Se implementó una pantalla de inicio de usuario con identidad NEFIJJ, organización/sede activa y accesos diferenciados a reportar, consultar «Mis reportes», protocolos y vinculación QR. El listado de reportes se separó en su propia ruta y muestra estado, prioridad y fecha/hora local derivada del timestamp del servidor. Se mantuvo la consulta API ya limitada a reportes del usuario autenticado.
+
+El formulario existente conserva categorías dinámicas y evidencia fotográfica opcional. Al confirmar la creación muestra un mensaje de éxito; los errores de red/permisos se mantienen visibles y los datos del formulario permanecen para reintentar. No se captura ni solicita ubicación GPS y no se cambió la regla de sede/reportante derivada del backend.
+
+Validaciones: la suite backend con 50 pruebas SQLite aprobó, incluida la prueba de que cada usuario consulta solo sus propias incidencias; la exportación Android final aprobó y los archivos móviles revisados no muestran errores de Problems. Falta recorrer en un teléfono el inicio, creación con/sin foto, error de conectividad, confirmación y recarga de «Mis reportes».
+
+### Fase 5 - Operación móvil del administrador
+La bandeja administrativa permite filtrar incidencias por sede, estado, prioridad y categoría; solicitar páginas adicionales; asignar/desasignar técnicos activos de la sede; y abrir el historial de auditoría. El historial carga todas las páginas del endpoint para no truncar eventos cuando supera el límite de paginación. Los cambios de asignación o estado invalidan el historial en memoria para que al volver a abrirlo se consulte la versión actual. No se añadieron roles, áreas ni asignación automática.
+
+Se añadió una prueba API combinada de prioridad/categoría que confirma que el filtro de una categoría de otra organización no revela incidencias. Validaciones: 22 pruebas de `IncidentApiTests` y 51 pruebas de la suite backend aprobadas en SQLite; `manage.py check`, `expo install --check`, `expo-doctor` (20/20), exportación Android y `git diff --check` aprobados. Falta validar en teléfono los filtros, carga adicional, asignación, transiciones e historial. No se aplicaron migraciones ni se conectó a MySQL.
+
+### Fase 6 - Alertas operativas de emergencia
+Se añadieron alertas asociadas al tenant, registro de emisor/cancelador, tokens push por usuario y una cola durable por dispositivo. Solo el administrador organizacional puede emitir/cancelar. La app solicita permiso de notificaciones, registra/desactiva el token y permite emitir, cancelar y consultar alertas. Los miembros activos del tenant con un dispositivo activo son destinatarios. Cancelar detiene entregas pendientes de la alerta original y crea entregas de cancelación; repetir la cancelación no duplica avisos.
+
+El comando `python manage.py send_emergency_alerts` envía notificaciones mediante Expo Push; reintenta tras 1 y 5 minutos (tres intentos totales), caduca el aviso a los 15 minutos y desactiva tokens reportados como `DeviceNotRegistered`. “Aceptada” solo refleja la aceptación por Expo, no la recepción en el teléfono. Se debe programar una instancia cada minuto. El texto y el token del dispositivo se comparten con el servicio Expo; no incluir datos personales o sensibles en mensajes.
+
+Se generó `incidents.0005` para alertas, dispositivos y entregas. La prueba completa usa SQLite en memoria; no se aplicó la migración ni se conectó a MySQL. La suite de 61 pruebas aprobó; `manage.py check`, `expo install --check`, `expo-doctor` (20/20) y exportación Android aprobaron. El worker y los recibos de entrega se probaron con mocks y no enviaron notificaciones reales. Pendiente configurar `EXPO_PUBLIC_EAS_PROJECT_ID`, compilar development build, programar el worker y validar en teléfono. Expo Go no permite comprobar push remoto.
+
+### Corrección de arranque local y conectividad Expo Go (7 de noviembre de 2026)
+1. **Arranque del Backend:**
+   - Se ajustó `backend/config/demo_settings.py` para cargar automáticamente `backend/.env` y agregar `DJANGO_ALLOWED_HOSTS` a `ALLOWED_HOSTS`. Esto resuelve el error HTTP 400 (`DisallowedHost`) cuando la app móvil conecta a la base SQLite DEMO desde la IP Wi-Fi (`192.168.1.5`).
+   - Se añadió `http://192.168.1.5:8081` a `CORS_ALLOWED_ORIGINS` en `backend/.env`.
+2. **Conectividad Expo Go en Windows:**
+   - Se identificó conflicto con los adaptadores virtuales Hyper-V/WSL (`vEthernet`), donde Metro tomaba la IP interna `172.19.128.1` inalcanzable para el teléfono. Se resolvió fijando `REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.5`.
+   - Se añadieron `iniciar-backend.bat` e `iniciar-frontend.bat` en la raíz del proyecto para facilitar el arranque interactivo sin problemas de directorio ni variables de entorno.
+3. **Validación:**
+   - Suite completa de 61 pruebas aprobada.
+   - Exportación de bundle Android aprobada sin errores.
+   - Generación y comprobación de códigos QR para Expo Go y para invitación organizacional.

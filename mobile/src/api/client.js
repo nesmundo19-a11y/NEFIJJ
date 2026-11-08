@@ -84,6 +84,21 @@ async function refreshAccessToken(refresh) {
   return refreshInFlight;
 }
 
+export async function refreshSessionAccessToken() {
+  const refresh = await SecureStore.getItemAsync("refresh_token");
+  if (!refresh) {
+    await invalidateSession();
+    throw new Error("No hay una sesión activa para renovar.");
+  }
+
+  try {
+    return await refreshAccessToken(refresh);
+  } catch (error) {
+    await invalidateSession();
+    throw error;
+  }
+}
+
 api.interceptors.request.use(async (config) => {
   const [access, organizationId] = await Promise.all([
     SecureStore.getItemAsync("access_token"),

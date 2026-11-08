@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -83,10 +84,14 @@ export default function CreateIncidentScreen({ navigation }) {
           type: imageType,
         });
       }
-      await api.post("/incidents/", payload, evidence
+      const { data } = await api.post("/incidents/", payload, evidence
         ? { headers: { "Content-Type": "multipart/form-data" } }
         : undefined);
-      navigation.goBack();
+      Alert.alert(
+        "Reporte enviado",
+        `Tu incidencia${data.id ? ` #${data.id}` : ""} fue registrada. Puedes seguir su estado en «Mis reportes».`,
+        [{ text: "Ver mis reportes", onPress: () => navigation.navigate("MyReports") }],
+      );
     } catch (requestError) {
       setError(getApiErrorMessage(requestError));
     } finally {

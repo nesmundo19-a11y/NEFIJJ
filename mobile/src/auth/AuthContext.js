@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 
-import {
+import api, {
   authenticate,
   clearSession,
   registerSessionExpiredHandler,
   saveActiveOrganization,
+  saveUser,
 } from "../api/client";
+import { unregisterPushDevice } from "../notifications/push";
 
 const AuthContext = createContext(null);
 
@@ -109,7 +111,60 @@ export function AuthProvider({ children }) {
     [user],
   );
 
+  const refreshMemberships = useCallback(
+    async (preferredOrganizationId = null) => {
+      if (!user) {
+        throw new Error("Inicia sesión antes de actualizar tus organizaciones.");
+      }
+
+      const memberships = [];
+      let page = 1;
+      while (true) {
+        const { data } = await api.get("/organizations/mine/", {
+          params: { page },
+        });
+        memberships.push(...(data.results ?? data));
+        if (!data.next) {
+          break;
+        }
+        page += 1;
+      }
+
+      const activeMemberships = memberships.filter(
+        (membership) => membership.organization_status === "active",
+      );
+      const preferredMembership = activeMemberships.find(
+        (membership) =>
+          String(membership.organization_id) === String(preferredOrganizationId),
+      );
+      const currentMembership = activeMemberships.find(
+        (membership) =>
+          String(membership.organization_id) === String(activeOrganizationId),
+      );
+      const selectedOrganizationId =
+        preferredMembership?.organization_id ??
+        currentMembership?.organization_id ??
+        (activeMemberships.length === 1 ? activeMemberships[0].organization_id : null);
+      const updatedUser = {
+        ...user,
+        organizations: memberships,
+        role: activeMemberships.length === 1 ? activeMemberships[0].role : "member",
+      };
+
+      await Promise.all([
+        saveUser(updatedUser),
+        saveActiveOrganization(selectedOrganizationId),
+      ]);
+      setUser(updatedUser);
+      setActiveOrganizationId(
+        selectedOrganizationId === null ? null : String(selectedOrganizationId),
+      );
+    },
+    [user, activeOrganizationId],
+  );
+
   const logout = useCallback(async () => {
+    await unregisterPushDevice();
     await clearSession();
     setUser(null);
     setActiveOrganizationId(null);
@@ -146,6 +201,7 @@ export function AuthProvider({ children }) {
       user: scopedUser,
       activeMembership,
       selectOrganization,
+      refreshMemberships,
       loading,
       initializationError,
       login,
@@ -156,6 +212,7 @@ export function AuthProvider({ children }) {
       scopedUser,
       activeMembership,
       selectOrganization,
+      refreshMemberships,
       loading,
       initializationError,
       login,

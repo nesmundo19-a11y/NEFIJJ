@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Button,
   FlatList,
   Pressable,
   RefreshControl,
@@ -15,6 +14,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 import { useAuth } from "../auth/AuthContext";
+import ActionButton from "../components/ActionButton";
 import EvidenceImage from "../components/EvidenceImage";
 import { IncidentBadges } from "../components/IncidentBadges";
 
@@ -24,6 +24,14 @@ const STATUS_FILTERS = [
   { value: "en_proceso", label: "En proceso" },
   { value: "resuelta", label: "Resueltas" },
   { value: "cerrada", label: "Cerradas" },
+];
+
+const PRIORITY_FILTERS = [
+  { value: "", label: "Todas" },
+  { value: "baja", label: "Baja" },
+  { value: "media", label: "Media" },
+  { value: "alta", label: "Alta" },
+  { value: "critica", label: "Crítica" },
 ];
 
 async function fetchAllPages(endpoint) {
@@ -40,14 +48,24 @@ async function fetchAllPages(endpoint) {
   }
 }
 
-export default function AdminIncidentsScreen({ navigation }) {
+export default function AdminIncidentsScreen({ navigation, route }) {
   const { user, logout } = useAuth();
   const [incidents, setIncidents] = useState([]);
   const [locations, setLocations] = useState([]);
   const [users, setUsers] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [locationFilter, setLocationFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [assignmentTarget, setAssignmentTarget] = useState(null);
+  const [historyByIncident, setHistoryByIncident] = useState({});
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  const [historyLoadingId, setHistoryLoadingId] = useState(null);
+  const [historyError, setHistoryError] = useState("");
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const nextPageRef = useRef(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -64,25 +82,41 @@ export default function AdminIncidentsScreen({ navigation }) {
     [users],
   );
 
-  const loadIncidents = useCallback(async () => {
+  const loadIncidents = useCallback(async (append = false) => {
     setError("");
+    const page = append ? nextPageRef.current : 1;
+    if (append) {
+      setLoadingMore(true);
+    }
     try {
-      const params = {};
+      const params = { page };
       if (locationFilter) {
         params.location = locationFilter;
       }
       if (statusFilter) {
         params.status = statusFilter;
       }
+      if (priorityFilter) {
+        params.priority = priorityFilter;
+      }
+      if (categoryFilter) {
+        params.category = categoryFilter;
+      }
       const { data } = await api.get("/incidents/", { params });
-      setIncidents(data.results);
+      setIncidents((current) => append ? [...current, ...data.results] : data.results);
+      setHasMore(Boolean(data.next));
+      nextPageRef.current = page + 1;
     } catch (requestError) {
       setError(getApiErrorMessage(requestError));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (append) {
+        setLoadingMore(false);
+      } else {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [locationFilter, statusFilter]);
+  }, [locationFilter, statusFilter, priorityFilter, categoryFilter]);
 
   useFocusEffect(
     useCallback(() => {
@@ -92,11 +126,16 @@ export default function AdminIncidentsScreen({ navigation }) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([fetchAllPages("/locations/"), fetchAllPages("/users/")])
-      .then(([locationResults, userResults]) => {
+    Promise.all([
+      fetchAllPages("/locations/"),
+      fetchAllPages("/users/"),
+      fetchAllPages("/categories/"),
+    ])
+      .then(([locationResults, userResults, categoryResults]) => {
         if (active) {
           setLocations(locationResults);
           setUsers(userResults.filter((account) => account.is_active));
+          setCategories(categoryResults.filter((category) => category.is_active));
         }
       })
       .catch((requestError) => {
@@ -115,6 +154,12 @@ export default function AdminIncidentsScreen({ navigation }) {
     setActionError("");
     try {
       await api.patch(`/incidents/${incident.id}/assign/`, { assigned_to: technicianId });
+      setHistoryByIncident((current) => {
+        const updated = { ...current };
+        delete updated[incident.id];
+        return updated;
+      });
+      setExpandedHistoryId((current) => current === incident.id ? null : current);
       setAssignmentTarget(null);
       await loadIncidents();
     } catch (requestError) {
@@ -139,11 +184,40 @@ export default function AdminIncidentsScreen({ navigation }) {
     setActionError("");
     try {
       await api.patch(`/incidents/${incident.id}/status/`, { status: nextStatus });
+      setHistoryByIncident((current) => {
+        const updated = { ...current };
+        delete updated[incident.id];
+        return updated;
+      });
+      setExpandedHistoryId((current) => current === incident.id ? null : current);
       await loadIncidents();
     } catch (requestError) {
       setActionError(getApiErrorMessage(requestError));
     } finally {
       setBusyIncidentId(null);
+    }
+  }
+
+  async function toggleHistory(incidentId) {
+    if (expandedHistoryId === incidentId) {
+      setExpandedHistoryId(null);
+      setHistoryError("");
+      return;
+    }
+    setExpandedHistoryId(incidentId);
+    setHistoryError("");
+    if (historyByIncident[incidentId]) {
+      return;
+    }
+
+    setHistoryLoadingId(incidentId);
+    try {
+      const events = await fetchAllPages(`/incidents/${incidentId}/events/`);
+      setHistoryByIncident((current) => ({ ...current, [incidentId]: events }));
+    } catch (requestError) {
+      setHistoryError(getApiErrorMessage(requestError));
+    } finally {
+      setHistoryLoadingId(null);
     }
   }
 
@@ -167,6 +241,30 @@ export default function AdminIncidentsScreen({ navigation }) {
           ? "Reabrir en proceso"
           : null;
     const busy = busyIncidentId === item.id;
+    const history = historyByIncident[item.id] ?? [];
+    const statusNames = {
+      pendiente: "Pendiente",
+      en_proceso: "En proceso",
+      resuelta: "Resuelta",
+      cerrada: "Cerrada",
+    };
+
+    function describeEvent(event) {
+      if (event.event_type === "created") {
+        return "Se creó el reporte.";
+      }
+      if (event.event_type === "status_changed") {
+        const from = statusNames[event.old_value?.status] ?? event.old_value?.status;
+        const to = statusNames[event.new_value?.status] ?? event.new_value?.status;
+        return `Estado: ${from ?? "—"} → ${to ?? "—"}.`;
+      }
+      if (event.event_type === "assigned") {
+        const from = usersById.get(event.old_value?.assigned_to)?.username ?? "Sin asignar";
+        const to = usersById.get(event.new_value?.assigned_to)?.username ?? "Sin asignar";
+        return `Asignación: ${from} → ${to}.`;
+      }
+      return "Actualización registrada.";
+    }
 
     return (
       <View style={styles.card}>
@@ -186,31 +284,30 @@ export default function AdminIncidentsScreen({ navigation }) {
           Asignado a: {assignedUser?.username ?? "Sin asignar"}
         </Text>
 
-        <Pressable
-          accessibilityRole="button"
+        <ActionButton
+          compact
           disabled={busy || optionsError !== ""}
           onPress={() =>
             setAssignmentTarget(assignmentTarget === item.id ? null : item.id)
           }
-          style={[styles.secondaryButton, busy && styles.disabled]}
-        >
-          <Text style={styles.secondaryButtonText}>
-            {assignmentTarget === item.id ? "Cancelar asignación" : "Asignar técnico"}
-          </Text>
-        </Pressable>
+          title={assignmentTarget === item.id ? "Cancelar asignación" : "Asignar técnico"}
+          variant="secondary"
+        />
 
         {assignmentTarget === item.id ? (
           <View style={styles.assignmentOptions}>
             {siteTechnicians.map((technician) => (
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{ selected: item.assigned_to === technician.id }}
                 disabled={busy || item.assigned_to === technician.id}
                 key={technician.id}
                 onPress={() => assignTechnician(item, technician.id)}
-                style={[
+                style={({ pressed }) => [
                   styles.choice,
                   item.assigned_to === technician.id && styles.selectedChoice,
                   busy && styles.disabled,
+                  pressed && styles.pressed,
                 ]}
               >
                 <Text
@@ -228,7 +325,11 @@ export default function AdminIncidentsScreen({ navigation }) {
                 accessibilityRole="button"
                 disabled={busy}
                 onPress={() => assignTechnician(item, null)}
-                style={[styles.choice, busy && styles.disabled]}
+                style={({ pressed }) => [
+                  styles.choice,
+                  busy && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
               >
                 <Text style={styles.choiceText}>Quitar asignación</Text>
               </Pressable>
@@ -240,14 +341,39 @@ export default function AdminIncidentsScreen({ navigation }) {
         ) : null}
 
         {nextStatusLabel ? (
-          <Pressable
-            accessibilityRole="button"
+          <ActionButton
+            compact
             disabled={busy}
             onPress={() => changeStatus(item)}
-            style={[styles.primaryButton, busy && styles.disabled]}
-          >
-            <Text style={styles.primaryButtonText}>{nextStatusLabel}</Text>
-          </Pressable>
+            title={nextStatusLabel}
+          />
+        ) : null}
+        <ActionButton
+          compact
+          onPress={() => toggleHistory(item.id)}
+          title={expandedHistoryId === item.id ? "Ocultar historial" : "Ver historial"}
+          variant="quiet"
+        />
+        {expandedHistoryId === item.id ? (
+          <View style={styles.history}>
+            {historyLoadingId === item.id ? (
+              <ActivityIndicator color="#0b6b63" />
+            ) : history.length ? (
+              history.map((event) => (
+                <View key={event.id} style={styles.historyEvent}>
+                  <Text style={styles.historyText}>{describeEvent(event)}</Text>
+                  <Text style={styles.historyMeta}>
+                    {event.actor_username} · {new Date(event.created_at).toLocaleString()}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.helper}>No hay eventos de historial.</Text>
+            )}
+            {historyError ? (
+              <Text accessibilityRole="alert" style={styles.error}>{historyError}</Text>
+            ) : null}
+          </View>
         ) : null}
       </View>
     );
@@ -258,32 +384,61 @@ export default function AdminIncidentsScreen({ navigation }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.welcome}>Hola, {user.username}</Text>
-          <Text style={styles.role}>Administración de incidencias</Text>
+          <Text style={styles.role}>
+            {route?.params?.organizationName
+              ? `Incidencias · ${route.params.organizationName}`
+              : "Administración de incidencias"}
+          </Text>
         </View>
-        <Button onPress={handleLogout} title="Salir" />
+        <ActionButton
+          compact
+          fullWidth={false}
+          onPress={handleLogout}
+          title="Salir"
+          variant="quiet"
+        />
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => navigation.navigate("Emergencies")}
-        style={styles.secondaryButton}
-      >
-        <Text style={styles.secondaryButtonText}>Protocolos de emergencia</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => navigation.navigate("CreateUser")}
-        style={styles.secondaryButton}
-      >
-        <Text style={styles.secondaryButtonText}>Crear usuario</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => navigation.navigate("Categories")}
-        style={styles.secondaryButton}
-      >
-        <Text style={styles.secondaryButtonText}>Administrar categorías</Text>
-      </Pressable>
+      <View style={styles.topActions}>
+        {user.role === "organization_admin" ? (
+          <ActionButton
+            compact
+            onPress={() => navigation.navigate("ManageEmergencyAlerts")}
+            title="Emitir alerta de emergencia"
+            variant="primary"
+          />
+        ) : null}
+        <ActionButton
+          compact
+          onPress={() => navigation.navigate("ManageInvitations")}
+          title="Invitar usuarios"
+          variant="primary"
+        />
+        <ActionButton
+          compact
+          onPress={() => navigation.navigate("JoinOrganization")}
+          title="Unirse a otra organización"
+          variant="quiet"
+        />
+        <ActionButton
+          compact
+          onPress={() => navigation.navigate("Emergencies")}
+          title="Protocolos de emergencia"
+          variant="secondary"
+        />
+        <ActionButton
+          compact
+          onPress={() => navigation.navigate("CreateUser")}
+          title="Crear usuario"
+          variant="secondary"
+        />
+        <ActionButton
+          compact
+          onPress={() => navigation.navigate("Categories")}
+          title="Administrar categorías"
+          variant="secondary"
+        />
+      </View>
 
       <Text style={styles.filterLabel}>Sede</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
@@ -310,6 +465,35 @@ export default function AdminIncidentsScreen({ navigation }) {
             label={status.label}
             onPress={() => setStatusFilter(status.value)}
             selected={statusFilter === status.value}
+          />
+        ))}
+      </ScrollView>
+
+      <Text style={styles.filterLabel}>Prioridad</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+        {PRIORITY_FILTERS.map((priority) => (
+          <FilterChip
+            key={priority.value || "all"}
+            label={priority.label}
+            onPress={() => setPriorityFilter(priority.value)}
+            selected={priorityFilter === priority.value}
+          />
+        ))}
+      </ScrollView>
+
+      <Text style={styles.filterLabel}>Categoría</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+        <FilterChip
+          label="Todas"
+          onPress={() => setCategoryFilter("")}
+          selected={!categoryFilter}
+        />
+        {categories.map((category) => (
+          <FilterChip
+            key={category.id}
+            label={category.name}
+            onPress={() => setCategoryFilter(String(category.id))}
+            selected={categoryFilter === String(category.id)}
           />
         ))}
       </ScrollView>
@@ -342,6 +526,16 @@ export default function AdminIncidentsScreen({ navigation }) {
             <Text style={styles.empty}>No hay incidencias para estos filtros.</Text>
           }
           renderItem={renderIncident}
+          ListFooterComponent={
+            hasMore ? (
+              <ActionButton
+                disabled={loadingMore}
+                onPress={() => loadIncidents(true)}
+                title={loadingMore ? "Cargando…" : "Cargar más incidencias"}
+                variant="secondary"
+              />
+            ) : null
+          }
         />
       )}
     </View>
@@ -354,7 +548,11 @@ function FilterChip({ label, onPress, selected }) {
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={[styles.filterChip, selected && styles.selectedFilterChip]}
+      style={({ pressed }) => [
+        styles.filterChip,
+        selected && styles.selectedFilterChip,
+        pressed && styles.pressed,
+      ]}
     >
       <Text style={[styles.filterChipText, selected && styles.selectedFilterChipText]}>
         {label}
@@ -384,6 +582,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
     color: "#52615e",
   },
+  topActions: {
+    gap: 8,
+    marginBottom: 4,
+  },
   filterLabel: {
     marginTop: 10,
     marginBottom: 6,
@@ -394,6 +596,9 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   filterChip: {
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -426,10 +631,14 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#e2eae7",
-    borderRadius: 16,
+    borderColor: "#e0eae7",
+    borderRadius: 18,
     backgroundColor: "#ffffff",
-    elevation: 2,
+    elevation: 3,
+    shadowColor: "#173d35",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
   },
   cardHeading: {
     flexDirection: "row",
@@ -451,40 +660,38 @@ const styles = StyleSheet.create({
     color: "#52615e",
     fontSize: 12,
   },
-  secondaryButton: {
-    minHeight: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "#0b6b63",
-    borderRadius: 8,
-  },
-  secondaryButtonText: {
-    color: "#075b55",
-    fontWeight: "600",
-  },
-  primaryButton: {
-    minHeight: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
-    borderRadius: 8,
-    backgroundColor: "#0b6b63",
-  },
-  primaryButtonText: {
-    color: "#ffffff",
-    fontWeight: "700",
-  },
   assignmentOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
     marginTop: 8,
   },
+  history: {
+    gap: 10,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "#f4f7f6",
+  },
+  historyEvent: {
+    gap: 3,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#dce6e3",
+  },
+  historyText: {
+    color: "#263238",
+  },
+  historyMeta: {
+    color: "#52615e",
+    fontSize: 12,
+  },
   choice: {
-    paddingHorizontal: 12,
+    flexShrink: 0,
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: "#b8c6c2",
@@ -505,6 +712,10 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.5,
+  },
+  pressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
   },
   loading: {
     marginTop: 32,
