@@ -77,6 +77,8 @@ Estas rutas requieren administrador organizacional o superadministrador y limita
 
 El alta de una cuenta requiere `username`, `email`, `password`, `role` y `location_id` para técnicos/usuarios finales. La API exige una contraseña de al menos 12 caracteres y aplica los validadores de Django; el campo es de escritura únicamente y Django la almacena mediante hash. Solo superadministradores pueden asignar administradores organizacionales. Un administrador no puede modificar cuentas superusuario desde estas rutas. Django Admin queda disponible para gestión operativa.
 
+En `PATCH /users/{id}/`, `role`, `location_id` e `is_active` modifican únicamente la membresía de la organización seleccionada. Desactivar una membresía no desactiva la cuenta global ni sus membresías en otras organizaciones. `username`, `email` y `password` son datos globales de la cuenta y solo los puede cambiar el superadministrador. No hay un endpoint de autoservicio para cambiar la contraseña.
+
 ## 6. Códigos de respuesta
 - `200 OK`: consulta o actualización exitosa.
 - `201 Created`: recurso creado.
@@ -88,7 +90,7 @@ El alta de una cuenta requiere `username`, `email`, `password`, `role` y `locati
 ## 7. Organizaciones, membresías e invitaciones
 - `GET /organizations/` y `POST /organizations/`: solo superadministrador. Crear requiere `name` y `slug`.
 - `PATCH /organizations/{id}/status/`: solo superadministrador; recibe `status` (`active` o `suspended`).
-- `GET /organizations/mine/`: devuelve las membresías activas del usuario autenticado.
+- `GET /organizations/mine/`: devuelve las membresías activas del usuario autenticado en organizaciones activas.
 - `POST /organizations/{id}/invitations/`: administrador de esa organización o superadministrador, con contexto activo. Devuelve una sola vez el código aleatorio y su vencimiento siete días hábiles después de la emisión: lunes-viernes, excluyendo festivos nacionales oficiales de Colombia, calculados en `America/Bogota`. Se conserva la hora local de emisión y el conteo empieza el día hábil siguiente. Solo se guarda el hash del código.
 - `POST /organizations/{id}/invitations/{invitation_id}/revoke/`: revoca una invitación aún no usada.
 - `POST /memberships/join/`: cuenta autenticada; recibe `code` y `location_id` de una sede activa de la organización. Crea una membresía de usuario final. Una invitación usada, vencida, revocada o de una organización suspendida se rechaza.

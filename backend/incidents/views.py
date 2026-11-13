@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import Location, OrganizationMembership, User
+from accounts.models import Location, OrganizationMembership
 from accounts.permissions import IsNEFIJJAdmin
 from accounts.tenancy import (
     get_active_membership,
@@ -127,10 +127,7 @@ class IncidentDetailView(generics.RetrieveAPIView):
 
 class IncidentAssignmentSerializer(serializers.Serializer):
     assigned_to = serializers.PrimaryKeyRelatedField(
-        queryset=get_user_model().objects.filter(
-            role=User.Role.TECHNICIAN,
-            is_active=True,
-        ),
+        queryset=get_user_model().objects.filter(is_active=True),
         allow_null=True,
     )
 

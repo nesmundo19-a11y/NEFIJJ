@@ -42,6 +42,7 @@ class NEFIJJTokenObtainPairSerializer(TokenObtainPairSerializer):
             OrganizationMembership.objects.filter(
                 user=self.user,
                 is_active=True,
+                organization__status=Organization.Status.ACTIVE,
             ).select_related("organization")
         )
         if self.user.is_superuser:
@@ -54,7 +55,7 @@ class NEFIJJTokenObtainPairSerializer(TokenObtainPairSerializer):
             "id": self.user.pk,
             "username": self.user.username,
             "role": role,
-            "location_id": self.user.location_id,
+            "location_id": memberships[0].location_id if len(memberships) == 1 else None,
             "organizations": OrganizationMembershipSerializer(
                 memberships,
                 many=True,
@@ -101,6 +102,7 @@ class MyOrganizationsView(generics.ListAPIView):
         return OrganizationMembership.objects.filter(
             user=self.request.user,
             is_active=True,
+            organization__status=Organization.Status.ACTIVE,
         ).select_related("organization")
 
 
@@ -139,17 +141,17 @@ class UserListCreateView(AdminOnlyMixin, generics.ListCreateAPIView):
             return queryset
         return queryset.filter(
             organization_memberships__organization=organization,
-            organization_memberships__is_active=True,
         ).distinct()
 
     def perform_create(self, serializer):
         organization = require_active_organization(self.request)
         role = serializer.validated_data["role"]
+        location = serializer.validated_data.get("location")
+        membership_is_active = serializer.validated_data.get("is_active", True)
         if role == OrganizationMembership.Role.ADMIN and not self.request.user.is_superuser:
             raise PermissionDenied(
                 "Solo el superadministrador puede asignar administradores organizacionales."
             )
-        location = serializer.validated_data.get("location")
         if location is not None and location.organization_id != organization.pk:
             raise ValidationError({"location_id": "La sede debe pertenecer a la organización activa."})
         if role != OrganizationMembership.Role.ADMIN and location is None:
@@ -161,7 +163,7 @@ class UserListCreateView(AdminOnlyMixin, generics.ListCreateAPIView):
                 location=location,
                 user=user,
                 role=role,
-                is_active=user.is_active,
+                is_active=membership_is_active,
             )
 
 
@@ -175,7 +177,6 @@ class UserDetailView(AdminOnlyMixin, generics.RetrieveUpdateAPIView):
             return queryset
         return queryset.filter(
             organization_memberships__organization=organization,
-            organization_memberships__is_active=True,
         ).distinct()
 
     def perform_update(self, serializer):
@@ -184,26 +185,29 @@ class UserDetailView(AdminOnlyMixin, generics.RetrieveUpdateAPIView):
             OrganizationMembership,
             organization=organization,
             user=serializer.instance,
-            is_active=True,
         )
         role = serializer.validated_data.get("role", membership.role)
         if role == OrganizationMembership.Role.ADMIN and not self.request.user.is_superuser:
             raise PermissionDenied(
                 "Solo el superadministrador puede asignar administradores organizacionales."
             )
-        location = serializer.validated_data.get("location", serializer.instance.location)
-        if location is not None and location.organization_id != organization.pk:
+        location = serializer.validated_data.get("location", membership.location)
+        if location is not None and (
+            location.organization_id != organization.pk or not location.is_active
+        ):
             raise ValidationError({"location_id": "La sede debe pertenecer a la organización activa."})
+        if role != OrganizationMembership.Role.ADMIN and location is None:
+            raise ValidationError({"location_id": "Selecciona una sede activa para este rol."})
+        membership_is_active = serializer.validated_data.get(
+            "is_active",
+            membership.is_active,
+        )
         with transaction.atomic():
             user = serializer.save()
-            OrganizationMembership.objects.filter(
-                organization=organization,
-                user=user,
-            ).update(
-                role=role,
-                location=location,
-                is_active=user.is_active,
-            )
+            membership.role = role
+            membership.location = location
+            membership.is_active = membership_is_active
+            membership.save(update_fields=["role", "location", "is_active"])
 
 
 class CreateInvitationView(APIView):

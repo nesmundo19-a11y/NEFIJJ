@@ -1,7 +1,7 @@
 # 07. Guía de Desarrollo Backend - NEFIJJ
 
 ## 1. Requisitos
-- Python compatible con Django 5.2. El entorno inicial usó Python 3.14.10; una verificación posterior ejecutó 29 pruebas bajo Python 3.15, lo cual no constituye certificación completa de esa versión.
+- Python compatible con Django 5.2. La verificación del 13 de noviembre de 2026 ejecutó 35 pruebas con Python 3.14.10; esto no constituye certificación completa de la matriz de versiones.
 - MySQL compatible con Django 5.2 o MariaDB 10.5 o superior. La instalación local XAMPP comprobada ejecuta MariaDB 10.11.16.
 - Git y PowerShell en Windows.
 

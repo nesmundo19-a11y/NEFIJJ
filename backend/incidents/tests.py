@@ -344,6 +344,34 @@ class IncidentApiTests(APITestCase):
         self.assertEqual(incident.status, Incident.Status.PENDING)
         self.assertEqual(incident.events.count(), 0)
 
+    def test_assignment_uses_the_technician_membership_role(self):
+        OrganizationMembership.objects.create(
+            organization=self.other_organization,
+            location=self.foreign_location,
+            user=self.student_a,
+            role=OrganizationMembership.Role.TECHNICIAN,
+        )
+        incident = Incident.objects.create(
+            title="Incidencia de otra organización",
+            description="Asignación según la membresía.",
+            organization=self.other_organization,
+            category=self.foreign_category,
+            location=self.foreign_location,
+            reported_by=self.foreign_student,
+        )
+        self.client.force_authenticate(self.superadmin)
+
+        response = self.client.patch(
+            reverse("incident-assign", args=[incident.pk]),
+            {"assigned_to": self.student_a.pk},
+            format="json",
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        incident.refresh_from_db()
+        self.assertEqual(incident.assigned_to, self.student_a)
+
     def test_admin_can_filter_incidents_by_location(self):
         incident_a = self.create_incident()
         incident_b = self.create_incident(

@@ -323,6 +323,82 @@ class OrganizationApiTests(APITestCase):
         self.assertEqual(users_response.status_code, 403)
         self.assertEqual(locations_response.status_code, 403)
 
+    def test_user_management_changes_only_selected_membership(self):
+        other_membership = OrganizationMembership.objects.create(
+            organization=self.other_organization,
+            location=self.other_location,
+            user=self.member,
+            role=OrganizationMembership.Role.USER,
+        )
+        membership = OrganizationMembership.objects.get(
+            organization=self.organization,
+            user=self.member,
+        )
+        self.client.force_authenticate(self.admin)
+        headers = {"HTTP_X_ORGANIZATION_ID": str(self.organization.pk)}
+
+        deactivate_response = self.client.patch(
+            reverse("user-detail", args=[self.member.pk]),
+            {
+                "role": OrganizationMembership.Role.TECHNICIAN,
+                "location_id": self.location.pk,
+                "is_active": False,
+            },
+            format="json",
+            **headers,
+        )
+        self.member.refresh_from_db()
+        membership.refresh_from_db()
+        other_membership.refresh_from_db()
+
+        self.assertEqual(deactivate_response.status_code, 200)
+        self.assertEqual(deactivate_response.data["role"], OrganizationMembership.Role.TECHNICIAN)
+        self.assertFalse(deactivate_response.data["is_active"])
+        self.assertTrue(self.member.is_active)
+        self.assertEqual(self.member.role, get_user_model().Role.STUDENT)
+        self.assertFalse(membership.is_active)
+        self.assertEqual(membership.role, OrganizationMembership.Role.TECHNICIAN)
+        self.assertTrue(other_membership.is_active)
+        self.assertEqual(other_membership.role, OrganizationMembership.Role.USER)
+
+        reactivate_response = self.client.patch(
+            reverse("user-detail", args=[self.member.pk]),
+            {"is_active": True},
+            format="json",
+            **headers,
+        )
+        membership.refresh_from_db()
+        self.assertEqual(reactivate_response.status_code, 200)
+        self.assertTrue(membership.is_active)
+        self.assertTrue(self.member.is_active)
+
+        self.client.force_authenticate(self.member)
+        selected_response = self.client.get(
+            reverse("incident-list"),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.pk),
+        )
+        self.assertEqual(selected_response.status_code, 200)
+
+    def test_organization_admin_cannot_change_global_account_fields(self):
+        OrganizationMembership.objects.create(
+            organization=self.other_organization,
+            location=self.other_location,
+            user=self.member,
+            role=OrganizationMembership.Role.USER,
+        )
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.patch(
+            reverse("user-detail", args=[self.member.pk]),
+            {"email": "changed@example.test"},
+            format="json",
+            HTTP_X_ORGANIZATION_ID=str(self.organization.pk),
+        )
+
+        self.member.refresh_from_db()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.member.email, "organization_member@example.test")
+
     def test_invitation_is_hashed_expires_and_can_only_be_used_once(self):
         self.client.force_authenticate(self.superadmin)
         start_at = datetime(2026, 12, 18, 20, 30, tzinfo=ZoneInfo("UTC"))
@@ -461,6 +537,19 @@ class OrganizationApiTests(APITestCase):
 
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(blocked_response.status_code, 403)
+
+        mine_response = self.client.get(reverse("my-organizations"))
+        self.client.force_authenticate(user=None)
+        login_response = self.client.post(
+            reverse("token_obtain_pair"),
+            {"username": "suspended_org_admin", "password": "Secure-Test-Password-123"},
+            format="json",
+        )
+        self.assertEqual(mine_response.status_code, 200)
+        self.assertEqual(mine_response.data["results"], [])
+        self.assertEqual(login_response.status_code, 200)
+        self.assertEqual(login_response.data["user"]["organizations"], [])
+        self.assertIsNone(login_response.data["user"]["location_id"])
 
 
 class OrganizationBackfillMigrationTests(TransactionTestCase):

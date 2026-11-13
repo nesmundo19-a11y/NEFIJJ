@@ -70,28 +70,28 @@ class UserManagementSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         role = attrs.get("role")
-        location = attrs.get("location", getattr(self.instance, "location", None))
-        if role is None and self.instance is not None:
-            role = {
-                User.Role.ADMIN: OrganizationMembership.Role.ADMIN,
-                User.Role.TECHNICIAN: OrganizationMembership.Role.TECHNICIAN,
-                User.Role.STUDENT: OrganizationMembership.Role.USER,
-            }.get(self.instance.role)
-
-        if self.instance is None and not attrs.get("password"):
-            raise serializers.ValidationError({"password": "La contraseña es obligatoria."})
-        if self.instance is None and role is None:
-            raise serializers.ValidationError({"role": "El rol es obligatorio."})
-        if role != OrganizationMembership.Role.ADMIN and (
-            location is None or not location.is_active
-        ):
-            raise serializers.ValidationError(
-                {"location_id": "Técnicos y estudiantes deben pertenecer a una sede activa."}
-            )
-        if self.instance and self.instance.is_superuser:
+        if self.instance is None:
+            location = attrs.get("location")
+            if not attrs.get("password"):
+                raise serializers.ValidationError({"password": "La contraseña es obligatoria."})
+            if role is None:
+                raise serializers.ValidationError({"role": "El rol es obligatorio."})
+            if role != OrganizationMembership.Role.ADMIN and (
+                location is None or not location.is_active
+            ):
+                raise serializers.ValidationError(
+                    {"location_id": "Técnicos y usuarios finales deben pertenecer a una sede activa."}
+                )
+        elif self.instance.is_superuser:
             raise serializers.ValidationError(
                 "Las cuentas superusuario se gestionan fuera de esta API."
             )
+        elif {"username", "email", "password"} & attrs.keys():
+            request = self.context.get("request")
+            if request is None or not request.user.is_superuser:
+                raise serializers.ValidationError(
+                    {"account": "Solo el superadministrador puede cambiar datos globales de una cuenta."}
+                )
         if "password" in attrs:
             user = self.instance or User(**attrs)
             try:
@@ -102,14 +102,17 @@ class UserManagementSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         membership_role = validated_data.pop("role")
+        location = validated_data.pop("location", None)
+        validated_data.pop("is_active", None)
         validated_data["role"] = self._user_role_for_membership(membership_role)
+        validated_data["location"] = location
         return User.objects.create_user(**validated_data)
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
-        membership_role = validated_data.pop("role", None)
-        if membership_role is not None:
-            validated_data["role"] = self._user_role_for_membership(membership_role)
+        validated_data.pop("role", None)
+        validated_data.pop("location", None)
+        validated_data.pop("is_active", None)
         for field, value in validated_data.items():
             setattr(instance, field, value)
         if password:
@@ -136,9 +139,9 @@ class UserManagementSerializer(serializers.ModelSerializer):
                 membership = OrganizationMembership.objects.filter(
                     organization=organization,
                     user=instance,
-                    is_active=True,
                 ).first()
                 if membership is not None:
                     data["role"] = membership.role
                     data["location_id"] = membership.location_id
+                    data["is_active"] = instance.is_active and membership.is_active
         return data

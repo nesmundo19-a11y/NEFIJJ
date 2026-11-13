@@ -61,7 +61,7 @@ Esta bitácora registra lo que se preparó en el repositorio, lo que se ejecutó
 6. La pantalla de invitación/QR, métricas, notificaciones, evidencia/GPS y la administración móvil completa siguen pendientes; la migración no se ha ensayado sobre una copia de MariaDB.
 
 ## 3. Verificaciones ejecutadas
-Los registros históricos de base local y red corresponden al **2 de noviembre de 2026**. Las pruebas de código y Expo anotadas a continuación se repitieron el **6 de noviembre de 2026**; no se deben confundir con la verificación de la base MariaDB ni con una prueba manual en teléfono.
+Los registros históricos de base local y red corresponden al **2 de noviembre de 2026**. Las pruebas de código y Expo anotadas a continuación se repitieron el **6 de noviembre de 2026**; no se deben confundir con la verificación de la base MariaDB ni con una prueba manual en teléfono. El **13 de noviembre de 2026** se volvió a ejecutar la suite backend después de separar roles/estado de membresía de los datos globales de cuenta.
 
 - Validación inicial anterior a la arquitectura multiempresa: `backend/.venv/Scripts/python.exe manage.py test accounts.tests incidents.tests --settings=config.test_settings`: **19 pruebas aprobadas** en SQLite en memoria.
 - `manage.py check --settings=config.test_settings`: aprobado; `makemigrations --check --dry-run --settings=config.test_settings`: sin cambios de migración pendientes. La configuración de prueba no verifica la conexión MariaDB.
@@ -74,6 +74,8 @@ Los registros históricos de base local y red corresponden al **2 de noviembre d
 - El chequeo del bundle no equivale a compilar/firmar un APK ni a instalarlo en dispositivo.
 - `git diff --check` y validación de enlaces/fences Markdown: aprobados en esta auditoría.
 - En una verificación posterior de esta implementación: **29 pruebas backend aprobadas** en SQLite en memoria; `manage.py check` aprobado; `makemigrations --check --dry-run` sin cambios; prueba explícita de backfill y reversión aprobada.
+- El 13 de noviembre: **35 pruebas backend aprobadas** con `config.test_settings` y SQLite en memoria; `manage.py check` aprobado; `makemigrations --check --dry-run` sin cambios. Se comprobó que los cambios de rol/estado afectan solo la membresía seleccionada, que un administrador organizacional no puede cambiar datos globales de cuenta y que la asignación de técnicos usa el rol de la membresía.
+- En esa misma revisión, la consulta de solo lectura `showmigrations --database default` falló con MySQL 1045 (acceso denegado para la configuración local actual). No se leyeron registros de negocio ni se ejecutaron migraciones/escrituras en MySQL; volver a validar cuando se corrija localmente la conexión.
 - El bundle Android se exportó de nuevo después de los cambios de rol y tenant. No es APK; no se hizo validación manual en teléfono.
 - Para preparar pruebas manuales se creó y migró `backend/nefijj-demo.sqlite3` con `config.demo_settings`: el backfill creó dos organizaciones y el seed pobló la organización DEMO con dos sedes, seis cuentas y cinco incidencias ficticias. Se configuró la URL LAN local `192.168.1.23` en `mobile/.env.local`. No se conectó ni migró `nefijj_db`.
 - Una petición GET al endpoint de login devolvió HTTP 405 en localhost y desde la IP LAN del equipo, consistente con una ruta que acepta POST; esto confirma acceso HTTP a la ruta, no un inicio de sesión correcto. El primer proceso Expo se cerró con `TreeFS: Failed to make parent directory entry`; además, una primera solicitud del bundle devolvió `500` porque Metro no resolvió el entry de Expo. PowerShell bloqueó `npx.ps1`; se detuvo el proceso y se reinició con `npx.cmd expo start --clear --lan --go`. El servidor nuevo contestó `200` en `/status`, el manifiesto y el bundle Android (`200`, 5.4 MB), solicitados por localhost y por la IP LAN desde el propio equipo. El QR no apareció en la salida no interactiva y todavía no se escaneó ni hay validación visual en teléfono.
@@ -104,16 +106,17 @@ Get-NetFirewallRule -DisplayName "Django 8000" |
 No ejecutar el primer comando en redes públicas, institucionales compartidas o no confiables. La ejecución requiere privilegios de administrador. Después, revisar que la regla aplique solo a `Private` y `LocalSubnet`. No abrir el puerto a Internet. Para producción, no utilizar `runserver`, `DEBUG=True`, HTTP ni esta regla de desarrollo.
 
 ## 5. Pendientes
-1. Confirmar con permisos elevados que el firewall está limitado al perfil privado y a `LocalSubnet`, siempre que la red sea de confianza.
-2. Ejecutar CP08 manualmente en el teléfono: login, lista, filtros de admin, asignación, cierre/reapertura, protocolos, cierre de sesión, sesión expirada y pérdida de red.
-3. Mantener la contraseña actual del superusuario fuerte, única y fuera del repositorio/chat; no escribirla en bitácoras.
-4. Repetir `npm audit --omit=dev` (el último resultado registrado fue de 5 vulnerabilidades moderadas) y encontrar una actualización compatible. No ejecutar `npm audit fix --force`: el arreglo automático implicaría degradar Expo a SDK 57. Evaluar alternativas antes de producción.
-5. Antes de desplegar, configurar un entorno de producción aparte: `DEBUG=False`, dominio en `DJANGO_ALLOWED_HOSTS`, HTTPS, secretos gestionados de forma segura, CORS limitado si aplica y servidor de aplicación de producción.
-6. Ensayar el backfill y reversión sobre una copia representativa de MariaDB, conciliando sedes, incidencias, categorías y membresías; no aplicar aún las migraciones a `nefijj_db`.
-7. Arrancar Metro con `npx.cmd expo start --clear --lan --go` desde una terminal interactiva. Si reaparece el error TreeFS de OneDrive, investigar el watcher/ruta y probar el workspace fuera de OneDrive antes de declarar estable Expo Go. Escanear el QR de desarrollo y validar en dispositivo los cuatro roles y su acceso real a la API DEMO.
-8. Revisar la autorización de lecturas del superadministrador sobre organizaciones suspendidas y agregar auditoría de cambios de organización/membresía antes de producción.
-9. Diseñar e implementar áreas/departamentos separadas de categorías, con asignación automática determinista y pruebas del responsable activo, sede, organización y caso sin asignación.
-10. Construir la UI de invitación/QR empresarial (diferente del QR de Expo), probar la lectura/aceptación y los límites de expiración; implementar métricas solo después de especificar sus definiciones.
+1. Corregir localmente las credenciales de `backend/.env` y repetir la inspección de solo lectura de migraciones MySQL; no imprimir ni compartir los valores del archivo.
+2. Confirmar con permisos elevados que el firewall está limitado al perfil privado y a `LocalSubnet`, siempre que la red sea de confianza.
+3. Ejecutar CP08 manualmente en el teléfono: login, lista, filtros de admin, asignación, cierre/reapertura, protocolos, cierre de sesión, sesión expirada y pérdida de red.
+4. Mantener la contraseña actual del superusuario fuerte, única y fuera del repositorio/chat; no escribirla en bitácoras.
+5. Repetir `npm audit --omit=dev` (el último resultado registrado fue de 5 vulnerabilidades moderadas) y encontrar una actualización compatible. No ejecutar `npm audit fix --force`: el arreglo automático implicaría degradar Expo a SDK 57. Evaluar alternativas antes de producción.
+6. Antes de desplegar, configurar un entorno de producción aparte: `DEBUG=False`, dominio en `DJANGO_ALLOWED_HOSTS`, HTTPS, secretos gestionados de forma segura, CORS limitado si aplica y servidor de aplicación de producción.
+7. Ensayar el backfill y reversión sobre una copia representativa de MariaDB, conciliando sedes, incidencias, categorías y membresías; no aplicar aún las migraciones a `nefijj_db`.
+8. Arrancar Metro con `npx.cmd expo start --clear --lan --go` desde una terminal interactiva. Si reaparece el error TreeFS de OneDrive, investigar el watcher/ruta y probar el workspace fuera de OneDrive antes de declarar estable Expo Go. Escanear el QR de desarrollo y validar en dispositivo los cuatro roles y su acceso real a la API DEMO.
+9. Completar auditoría de endpoints y agregar bitácora de cambios de organización/membresía antes de producción.
+10. Diseñar e implementar áreas/departamentos separadas de categorías, con asignación automática determinista y pruebas del responsable activo, sede, organización y caso sin asignación.
+11. Construir la UI de invitación/QR empresarial (diferente del QR de Expo), probar la lectura/aceptación y los límites de expiración; implementar métricas solo después de especificar sus definiciones.
 
 ## 6. Documentos relacionados
 - [01_propuesta.md](./01_propuesta.md): alcance y estado del producto.

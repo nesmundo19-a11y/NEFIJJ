@@ -41,7 +41,7 @@ Desde Expo Go, iniciar/cerrar sesión, consultar y crear incidencias, consultar 
 La cuenta admin también debe poder filtrar por sede/estado, asignar un técnico activo de su sede, cerrar una incidencia resuelta y reabrir una cerrada. Estas acciones deben probarse desde el móvil, además de la API.
 
 ### CP09 - Aislamiento entre organizaciones (implementación automatizada parcial)
-Las pruebas automatizadas crean dos organizaciones y comprueban acceso cruzado a incidencias, usuarios y sedes, filtros por tenant, acceso global del superadministrador y bloqueo de organizaciones suspendidas. Ampliar cuando se agreguen pantallas, archivos, métricas o nuevos endpoints.
+Las pruebas automatizadas crean dos organizaciones y comprueban acceso cruzado a incidencias, usuarios y sedes, filtros por tenant, acceso global del superadministrador y bloqueo de organizaciones suspendidas. También verifican que cambiar rol/estado en una membresía no altere las otras membresías ni el estado global de la cuenta, y que solo el superadministrador pueda cambiar username, email o contraseña de otras cuentas. Ampliar cuando se agreguen pantallas, archivos, métricas o nuevos endpoints.
 **Esperado:** ningún usuario organizacional accede ni modifica recursos de otra organización; el superadministrador solo obtiene acceso global por su rol autorizado.
 
 ### CP10 - Invitaciones y estado de organización (API automatizada)
@@ -72,8 +72,9 @@ Arrancar API bajo `config.demo_settings`, confirmar HTTP `405` para GET al endpo
 - No hay errores críticos en consola durante los flujos básicos y los cambios relevantes están cubiertos por pruebas automatizadas.
 
 ## 4. Resultados actuales
-- Backend automatizado: **29 pruebas aprobadas** con `config.test_settings` y SQLite en memoria; incluye aislamiento multiorganización, acceso del superadministrador, invitaciones de un uso/expiradas/revocadas, suspensión y backfill con reversión.
+- Backend automatizado (13 de noviembre de 2026): **35 pruebas aprobadas** con `config.test_settings` y SQLite en memoria. Incluye los casos nuevos de roles/estado por membresía y asignación por rol de membresía; no modifica ni valida la base MySQL.
 - Django: `manage.py check` aprobado y `makemigrations --check --dry-run` sin cambios pendientes.
+- La consulta de solo lectura `showmigrations --database default` no pudo conectarse a MySQL (1045, acceso denegado); no se ejecutaron migraciones ni escrituras sobre la base local.
 - Base local MariaDB 10.11.16 y smoke test de API: verificaciones históricas del 2 de noviembre, no repetidas en este cambio. No se conectó ni migró `nefijj_db`.
 - Expo: `expo export --platform android` aprobado después de adaptar autenticación, selector de organización y navegación por rol. La exportación produce bundle; no se compiló ni firmó un APK.
 - Entorno de prueba local (6 de noviembre): se creó `backend/nefijj-demo.sqlite3` con `config.demo_settings`; backfill/migraciones y seed aprobados, con 2 organizaciones en el backfill, 2 sedes DEMO, 6 cuentas y 5 incidencias. La API contestó `405` por GET en el endpoint POST de login en `127.0.0.1:8000` y desde la IP LAN actual del equipo. El inicio JWT devolvió `200` para las seis cuentas DEMO; el throttle limita pruebas rápidas, así que los intentos se espacian. Tras un reinicio de Metro con caché limpia, `/status`, manifiesto y bundle Android respondieron `200` (5.4 MB) tanto en localhost como en la IP LAN solicitada desde el mismo equipo. No se ha comprobado el acceso desde un teléfono.
